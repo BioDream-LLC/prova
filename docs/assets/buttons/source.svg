@@ -17,5 +17,5 @@
   <rect x="3" y="3" width="284" height="66" rx="15" fill="none" stroke="#312e81" stroke-opacity="0.8" stroke-width="1"/>
   <g transform="translate(22,18)" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"><path d="M13 8 3 20l10 12M27 8l10 12-10 12M23 4 17 36"/></g>
   <text x="76" y="31" font-size="15" font-weight="700" fill="#fff" fill-opacity="0.80" letter-spacing="0.08em" font-family="system-ui, -apple-system, Segoe UI, sans-serif">BUILD IT</text>
-  <text x="76" y="55" font-size="15" font-weight="700" fill="#fff" font-family="system-ui, -apple-system, Segoe UI, sans-serif">From source <tspan fill-opacity="0.72" font-weight="400">· Go 1.27</tspan></text>
+  <text x="76" y="55" font-size="15" font-weight="700" fill="#fff" font-family="system-ui, -apple-system, Segoe UI, sans-serif">From source <tspan fill-opacity="0.72" font-weight="400">· Go 1.26</tspan></text>
 </svg>

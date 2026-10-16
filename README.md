@@ -22,6 +22,8 @@ simulated targets are built in. Copy it, run it, open the browser.
 
 <a href="https://prova.perfuse.health:9443/manual"><img src="docs/assets/buttons/manual.svg" alt="Read the prova reference manual" width="240"></a>&nbsp;<a href="#build"><img src="docs/assets/buttons/source.svg" alt="Build prova from source" width="240"></a>
 
+<sub><b>Download v0.1.0</b> for [Linux](https://github.com/BioDream-LLC/prova/releases/download/v0.1.0/prova_v0.1.0_linux_amd64.tar.gz) · [macOS, Apple Silicon](https://github.com/BioDream-LLC/prova/releases/download/v0.1.0/prova_v0.1.0_darwin_arm64.tar.gz) · [Windows](https://github.com/BioDream-LLC/prova/releases/download/v0.1.0/prova_v0.1.0_windows_amd64.tar.gz) — one file, nothing to install</sub>
+
 [**Why prova**](#why-prova) · [**What it does**](#everything-it-does) · [**What it looks like**](#what-it-looks-like) ·
 [**Running it**](#running-it) · [**How it compares**](#how-it-compares) · [**Security**](#security) · [**FAQ**](#faq)
 
