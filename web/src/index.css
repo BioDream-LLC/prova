@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+/* Design tokens — dark-first, restrained slate/indigo, semantic pass/fail/indeterminate.
+   These generate utilities: bg-bg, text-muted, border-line, bg-accent, text-pass, etc. */
+@theme {
+  --color-bg: #0b1120;
+  --color-surface: #0f172a;
+  --color-surface2: #111c33;
+  --color-line: #1f2a44;
+  --color-text: #e5ebf5;
+  --color-muted: #93a0b8;
+  --color-faint: #5b6880;
+  --color-accent: #6366f1;
+  --color-accent2: #22d3ee;
+  --color-pass: #10b981;
+  --color-fail: #f43f5e;
+  --color-indet: #f59e0b;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius: 0.75rem;
+}
+
+:root { color-scheme: dark; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(99,102,241,0.10), transparent 60%),
+    radial-gradient(900px 500px at 0% 0%, rgba(34,211,238,0.06), transparent 55%),
+    var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  /* The pro-finance detail: every number aligns in its column, everywhere. */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Numbers helper for emphasis spots. */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Thin, unobtrusive scrollbars that match the theme. */
+* { scrollbar-width: thin; scrollbar-color: #26324c transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: #26324c; border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: #33415f; background-clip: content-box; }
+
+/* xyflow sits on our dark surface, not its default light canvas. */
+.react-flow { background: transparent; }
+.react-flow__attribution { display: none; }

@@ -1,0 +1,18 @@
+# Go
+/bin/
+/dist/
+
+# Generated docs (regenerate with `make manual`)
+/docs/manual/
+
+# Web
+/web/node_modules/
+/web/dist/
+/web/.vite/
+/web/*.tsbuildinfo
+
+# The built interface in internal/web/dist IS committed (single-binary pattern) — do not ignore it.
+
+# OS / editor
+.DS_Store
+*.swp

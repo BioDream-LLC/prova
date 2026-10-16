@@ -1,0 +1,40 @@
+prova
+Copyright 2026 BioDream LLC
+
+prova is licensed under the PolyForm Small Business License 1.0.0 (LICENSE.md). It
+is source-available, not open source: a company with fewer than 100 people
+(employees and contractors) and less than USD 1,000,000 (2019, adjusted for
+inflation) revenue in its prior tax year may use, change and share it. Any other
+company needs a commercial licence from BioDream LLC.
+
+The SAML 2.0 service provider (internal/saml, with its test captures) and the
+embedded-database layer (internal/sqlitedb) come from Perfuse
+(https://github.com/biodream-llc/perfuse), as does the manual renderer
+(internal/manual: render.go, page.go, style.go and chapters.go). Perfuse is
+Copyright 2026 BioDream LLC and licensed under the Apache License, Version 2.0;
+its licence and notice are in licenses/perfuse-LICENSE and
+licenses/perfuse-NOTICE. These files have been modified for prova. Perfuse
+itself stays under the Apache License 2.0; prova's licence does not apply to it.
+
+The OpenID Connect client (internal/oidc) and the account and session design
+(internal/auth, internal/authweb) come from Vaglio (BioDream LLC).
+
+The payments casebook (internal/qcasebook/payments.cb) is written in the
+casebook language of BioDream's quorum reasoning engine and compiled by quorum's
+cbc compiler; the compiled framework is embedded in prova. The optional
+prova-proof companion (proof/) is part of prova and under the same licence.
+
+prova-proof may be linked against CaDiCaL (Copyright (c) Armin Biere and
+contributors, MIT License), which is obtained and built separately and is not
+included in this repository.
+
+The embedded database engine is modernc.org/sqlite (BSD-3-Clause), a
+translation of SQLite, which is in the public domain. The Go binary also embeds
+goja (MIT) and gopher-lua (MIT). The web interface is built with open-source
+packages (React, Redux Toolkit, Vite, Tailwind CSS, CodeMirror, Apache ECharts,
+TradingView lightweight-charts, @xyflow/react, @tanstack/react-table, lucide and
+others, under the MIT, ISC, BSD and Apache-2.0 licences), listed with their
+licences in web/pnpm-lock.yaml.
+
+ISO 20022, ISO 8583, FIX and SWIFT are standards and trademarks of their
+respective owners, named here only to say what this software reads and writes.

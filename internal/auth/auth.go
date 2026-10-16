@@ -1,0 +1,396 @@
+// Package auth is who may use prova, and their sessions. It follows vaglio's design (BioDream LLC).
+//
+// Accounts and sessions live in prova's database (internal/store). Passwords are generated, never chosen: a generated
+// password is long enough that no rule about what it must contain is needed, and it is shown once. They are stored as
+// PBKDF2-SHA256 hashes. The one exception is a published demonstration account (prova -demo-account), whose password
+// is public by design and which can only ever be a viewer.
+//
+// An account signs in one of two ways: with its password (local), or — when marked for single sign-on — through the
+// configured OpenID Connect or SAML identity provider. The provider proves who someone is; the account here says what
+// they may do. A name the provider vouches for with no such account is refused, never created.
+//
+// Sessions are kept in the database, so they survive a restart. A session is keyed by the SHA-256 of its token, so
+// the token itself is never written anywhere. Changing an account's role, password or sign-in method ends its sessions.
+package auth
+
+import (
+	"crypto/pbkdf2"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log"
+	"math/big"
+	"regexp"
+	"sync"
+	"time"
+
+	"github.com/biodream-llc/prova/internal/store"
+)
+
+// Role is what a user may do. Each includes the ones before it.
+type Role string
+
+const (
+	// Viewer reads runs, proofs, messages, suites, reports and the manual.
+	Viewer Role = "viewer"
+	// Operator also runs scenarios, suites, load tests and transformations.
+	Operator Role = "operator"
+	// Admin also manages accounts and reads the activity log.
+	Admin Role = "admin"
+)
+
+var rank = map[Role]int{Viewer: 1, Operator: 2, Admin: 3}
+
+// Can is whether a role includes another.
+func (r Role) Can(need Role) bool { return rank[r] >= rank[need] && rank[need] > 0 }
+
+// Valid is whether r is a known role.
+func (r Role) Valid() bool { return rank[r] > 0 }
+
+// User is one account, without its password hash.
+type User struct {
+	Name    string    `json:"name"`
+	Role    Role      `json:"role"`
+	SSO     bool      `json:"sso,omitempty"`
+	Created time.Time `json:"created"`
+}
+
+// Iterations is the PBKDF2 work factor for new passwords (OWASP's figure for SHA-256). Tests lower it.
+var Iterations = 600_000
+
+var nameRe = regexp.MustCompile(`^[a-z][a-z0-9._-]{1,63}$`)
+
+// ValidName is whether s can name an account: lower case, starting with a letter.
+func ValidName(s string) bool { return nameRe.MatchString(s) }
+
+func hashPassword(password string, salt []byte, iterations int) (string, error) {
+	key, err := pbkdf2.Key(sha256.New, password, salt, iterations, 32)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawStdEncoding.EncodeToString(key), nil
+}
+
+// Generate returns a new password: 20 characters from 56, about 116 bits.
+func Generate() string {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+	out := make([]byte, 20)
+	for i := range out {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		out[i] = alphabet[n.Int64()]
+	}
+	return string(out)
+}
+
+// Users are the accounts.
+type Users struct {
+	st *store.Store
+}
+
+// NewUsers returns the accounts held in st.
+func NewUsers(st *store.Store) *Users { return &Users{st: st} }
+
+// Store is the database the accounts live in.
+func (u *Users) Store() *store.Store { return u.st }
+
+func public(r store.User) User {
+	return User{Name: r.Name, Role: Role(r.Role), SSO: r.SSO, Created: r.Created}
+}
+
+// Count is the number of accounts.
+func (u *Users) Count() (int, error) { return u.st.CountUsers() }
+
+// List returns the accounts.
+func (u *Users) List() ([]User, error) {
+	rs, err := u.st.Users()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]User, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, public(r))
+	}
+	return out, nil
+}
+
+func validate(name string, role Role) error {
+	if !ValidName(name) {
+		return fmt.Errorf("account names are lower case letters, digits, '.', '_' or '-', starting with a letter: %q", name)
+	}
+	if !role.Valid() {
+		return fmt.Errorf("unknown role %q (viewer, operator or admin)", role)
+	}
+	return nil
+}
+
+func (u *Users) created(name string) (time.Time, error) {
+	old, ok, err := u.st.User(name)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if ok {
+		return old.Created, nil
+	}
+	return time.Now().UTC(), nil
+}
+
+// Set creates a password account, or gives an existing one a new role and a new password, returning the generated
+// password. The password is shown once and never stored. The account's sessions end.
+func (u *Users) Set(name string, role Role) (string, error) {
+	password := Generate()
+	return password, u.SetPassword(name, role, password)
+}
+
+// SetPassword gives an account a chosen password. Only the demonstration account is set this way; every other
+// password is generated by Set.
+func (u *Users) SetPassword(name string, role Role, password string) error {
+	if err := validate(name, role); err != nil {
+		return err
+	}
+	if len(password) < 8 {
+		return errors.New("a password must be at least 8 characters")
+	}
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return err
+	}
+	hash, err := hashPassword(password, salt, Iterations)
+	if err != nil {
+		return err
+	}
+	created, err := u.created(name)
+	if err != nil {
+		return err
+	}
+	return u.st.PutUser(store.User{Name: name, Role: string(role), Salt: base64.RawStdEncoding.EncodeToString(salt),
+		Hash: hash, Iterations: Iterations, Created: created}, false)
+}
+
+// HasPassword is whether the account exists, signs in with a password, and that password is password.
+func (u *Users) HasPassword(name, password string) bool {
+	r, ok, err := u.st.User(name)
+	return err == nil && ok && !r.SSO && check(r, password)
+}
+
+// SetSSO creates an account that signs in only through single sign-on, or makes an existing one so (its password is
+// removed). The account's sessions end.
+func (u *Users) SetSSO(name string, role Role) error {
+	if err := validate(name, role); err != nil {
+		return err
+	}
+	created, err := u.created(name)
+	if err != nil {
+		return err
+	}
+	return u.st.PutUser(store.User{Name: name, Role: string(role), SSO: true, Created: created}, false)
+}
+
+// Remove deletes an account; its sessions end with it.
+func (u *Users) Remove(name string) error { return u.st.DeleteUser(name) }
+
+// Get returns an account.
+func (u *Users) Get(name string) (User, bool, error) {
+	r, ok, err := u.st.User(name)
+	return public(r), ok, err
+}
+
+// dummy is checked against when a name is unknown, so a wrong name takes as long as a wrong password.
+var dummy = store.User{Salt: "AAAAAAAAAAAAAAAAAAAAAA"}
+
+// check reports whether password is the account's.
+func check(us store.User, password string) bool {
+	salt, err := base64.RawStdEncoding.DecodeString(us.Salt)
+	if err != nil {
+		return false
+	}
+	iter := us.Iterations
+	if iter <= 0 {
+		iter = Iterations
+	}
+	h, err := hashPassword(password, salt, iter)
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(h), []byte(us.Hash)) == 1
+}
+
+// Session is a signed-in user.
+type Session struct {
+	User    string
+	Role    Role
+	Via     string // "password", "oidc" or "saml"
+	Created time.Time
+}
+
+// Sessions are the signed-in users, and the guard against guessing passwords.
+type Sessions struct {
+	users    *Users
+	mu       sync.Mutex
+	failures map[string][]time.Time
+	pruned   time.Time
+	now      func() time.Time
+	Idle     time.Duration // signed out after this long without a request
+	Max      time.Duration // and after this long regardless
+}
+
+// NewSessions returns the session table over the accounts.
+func NewSessions(users *Users) *Sessions {
+	return &Sessions{users: users, failures: map[string][]time.Time{}, now: time.Now,
+		Idle: 30 * time.Minute, Max: 12 * time.Hour}
+}
+
+// Users is the accounts the sessions read.
+func (s *Sessions) Users() *Users { return s.users }
+
+// Guessing limits: this many failed sign-ins for one name within the window locks the name for the rest of the window.
+const (
+	maxFailures   = 5
+	failureWindow = 15 * time.Minute
+	// touchEvery bounds how often a request writes the session's last-seen time: often enough for the idle limit to
+	// be right to the minute, rarely enough that reading a page is not a database write.
+	touchEvery = time.Minute
+)
+
+// ErrLocked is a name with too many recent failed sign-ins.
+var ErrLocked = errors.New("too many failed sign-ins for this name; try again in 15 minutes")
+
+// ErrBadCredentials is a wrong name or password; which one is deliberately not said.
+var ErrBadCredentials = errors.New("wrong name or password")
+
+// ErrNotSSO is a single sign-on for a name that has no account allowed to sign in that way.
+var ErrNotSSO = errors.New("no account here signs in through single sign-on under that name; " +
+	"an administrator adds one with `prova user sso NAME ROLE`")
+
+func newToken() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// tokenID is the key a session is stored under: a token cannot be recovered from it.
+func tokenID(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Sessions) start(us store.User, via string) (string, *Session, error) {
+	now := s.now().UTC()
+	token := newToken()
+	if err := s.users.st.PutSession(store.Session{ID: tokenID(token), User: us.Name, Role: us.Role, Via: via,
+		Created: now, Seen: now}); err != nil {
+		return "", nil, err
+	}
+	return token, &Session{User: us.Name, Role: Role(us.Role), Via: via, Created: now}, nil
+}
+
+// SignIn checks a name and password and returns a new session token.
+func (s *Sessions) SignIn(name, password string) (string, *Session, error) {
+	now := s.now()
+	s.mu.Lock()
+	recent := s.failures[name][:0]
+	for _, t := range s.failures[name] {
+		if now.Sub(t) < failureWindow {
+			recent = append(recent, t)
+		}
+	}
+	s.failures[name] = recent
+	locked := len(recent) >= maxFailures
+	if len(s.failures) > 100000 { // a flood of invented names: forget the oldest state rather than grow without bound
+		s.failures = map[string][]time.Time{}
+	}
+	s.mu.Unlock()
+	if locked {
+		return "", nil, ErrLocked
+	}
+
+	us, ok, err := s.users.st.User(name)
+	if err != nil {
+		return "", nil, err
+	}
+	if !ok || us.SSO || us.Hash == "" {
+		check(dummy, password) // the same work as a real check, so an unknown or SSO-only name is not told apart by timing
+		ok = false
+	}
+	if !ok || !check(us, password) {
+		s.mu.Lock()
+		s.failures[name] = append(s.failures[name], now)
+		s.mu.Unlock()
+		return "", nil, ErrBadCredentials
+	}
+	s.mu.Lock()
+	delete(s.failures, name)
+	s.mu.Unlock()
+	return s.start(us, "password")
+}
+
+// SignInSSO starts a session for a name the identity provider vouched for. The account must exist and be marked for
+// single sign-on: the provider proves who someone is, and this server's accounts say what they may do.
+func (s *Sessions) SignInSSO(name, via string) (string, *Session, error) {
+	us, ok, err := s.users.st.User(name)
+	if err != nil {
+		return "", nil, err
+	}
+	if !ok || !us.SSO {
+		return "", nil, ErrNotSSO
+	}
+	return s.start(us, via)
+}
+
+// Get returns the session for a token, extending it, or false if it has expired or its account has gone or changed.
+func (s *Sessions) Get(token string) (Session, bool) {
+	if token == "" {
+		return Session{}, false
+	}
+	now := s.now().UTC()
+	s.prune(now)
+	id := tokenID(token)
+	row, ok, err := s.users.st.Session(id)
+	if err != nil {
+		log.Printf("auth: reading a session: %v", err)
+		return Session{}, false
+	}
+	if !ok {
+		return Session{}, false
+	}
+	if now.Sub(row.Seen) > s.Idle || now.Sub(row.Created) > s.Max {
+		_ = s.users.st.DeleteSession(id)
+		return Session{}, false
+	}
+	us, exists, err := s.users.st.User(row.User)
+	if err != nil || !exists || us.Role != row.Role || (row.Via == "password") == us.SSO {
+		_ = s.users.st.DeleteSession(id)
+		return Session{}, false
+	}
+	if now.Sub(row.Seen) > touchEvery {
+		if err := s.users.st.TouchSession(id, now); err != nil {
+			log.Printf("auth: recording session activity: %v", err)
+		}
+	}
+	return Session{User: row.User, Role: Role(row.Role), Via: row.Via, Created: row.Created}, true
+}
+
+// prune removes expired sessions, at most once a minute.
+func (s *Sessions) prune(now time.Time) {
+	s.mu.Lock()
+	due := now.Sub(s.pruned) > time.Minute
+	if due {
+		s.pruned = now
+	}
+	s.mu.Unlock()
+	if due {
+		if err := s.users.st.PruneSessions(now.Add(-s.Idle), now.Add(-s.Max)); err != nil {
+			log.Printf("auth: pruning sessions: %v", err)
+		}
+	}
+}
+
+// SignOut ends a session.
+func (s *Sessions) SignOut(token string) {
+	if err := s.users.st.DeleteSession(tokenID(token)); err != nil {
+		log.Printf("auth: ending a session: %v", err)
+	}
+}

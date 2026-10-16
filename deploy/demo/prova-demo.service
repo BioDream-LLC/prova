@@ -1,0 +1,24 @@
+[Unit]
+Description=prova public demonstration (simulated targets and invented data only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=prova
+Group=prova
+ExecStart=/opt/prova/prova -addr :9443 -data /opt/prova/data \
+  -tls-cert /opt/prova/tls/fullchain.pem -tls-key /opt/prova/tls/privkey.pem \
+  -demo-account demo:try-prova-now -demo-traffic 15m -retain-days 7
+Restart=on-failure
+RestartSec=5
+# A nano instance shared with two other services: keep prova to a fair share.
+MemoryMax=160M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/prova/data
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

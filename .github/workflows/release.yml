@@ -1,0 +1,78 @@
+name: release
+
+# Builds prova for every platform, with the prova-proof companion compiled natively on each OS and
+# linked against CaDiCaL (the SAT solver), and uploads the bundles. CaDiCaL is checked out and built
+# per job; if it is a private repo, provide a deploy key / token via secrets.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest,  goos: linux,   goarch: amd64, ext: '' }
+          - { os: macos-latest,   goos: darwin,  goarch: arm64, ext: '' }
+          - { os: windows-latest, goos: windows, goarch: amd64, ext: '.exe' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23' }
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml }
+
+      - name: Build web
+        run: cd web && pnpm install --frozen-lockfile && pnpm build
+
+      - name: Build CaDiCaL
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/arminbiere/cadical.git "$HOME/cadical"
+          cd "$HOME/cadical" && ./configure && make -j
+
+      - name: Build prova + companion
+        shell: bash
+        run: |
+          go build -trimpath -ldflags "-s -w -X main.version=${{ github.ref_name }}" -o "bin/prova${{ matrix.ext }}" ./cmd/prova
+          if [ "${{ matrix.os }}" != "windows-latest" ]; then
+            CADICAL="$HOME/cadical" make proof
+          fi
+
+      - name: Package
+        shell: bash
+        run: |
+          name="prova_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p "dist/$name"
+          cp "bin/prova${{ matrix.ext }}" "dist/$name/"
+          [ -f bin/prova-proof ] && cp bin/prova-proof "dist/$name/" || true
+          cp LICENSE.md NOTICE README.md "dist/$name/"; cp -r licenses "dist/$name/"
+          (cd dist && tar -czf "$name.tar.gz" "$name")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prova-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true

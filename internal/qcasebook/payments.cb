@@ -1,0 +1,57 @@
+casebook prova-payments v1
+source "prova behavioural payment controls" dated 2026-10-15 by "BioDream LLC"
+note "Second, independent verdict engine for prova. Written in quorum's casebook language and compiled by cbc, which validates every combination of readings before the framework is emitted. prova's Go casebook decides the same cases by a different route; the two are cross-checked on every run."
+note "Readings are booleans produced by prova's binding layer from the exchange: what was sent, what the tester seeded, what the host returned. Thresholds (amount vs balance, date order, currency equality) live in the binding, not here."
+
+# ─── what the exchange reports ──────────────────────────────────────────────
+observe host_accepted     "the host accepted the instruction"
+observe host_rejected     "the host rejected the instruction"
+observe no_decision       "the response carried no recognized decision"
+observe reason_given      "the rejection carried a reason code"
+observe reason_wrong      "the reason code is not the one the scenario requires"
+observe funds_reason      "the host blamed insufficient funds"
+observe over_balance      "the amount exceeds the seeded available balance"
+observe balance_unknown   "the available balance was not seeded"
+observe overdraft_unknown "the overdraft facility is unknown"
+observe ccy_mismatch      "the instruction is in a currency the account does not hold"
+observe back_valued       "the value date precedes the settlement date"
+observe duplicate         "the instruction was already processed"
+
+# A response cannot both accept and reject.
+exclusive host_accepted host_rejected
+
+# ─── violations: ways the host can misbehave ───────────────────────────────
+claim accepted_over_balance "host accepted a payment exceeding available funds" needs over_balance host_accepted
+claim wrong_reason          "host rejected with the wrong reason code"          needs host_rejected reason_wrong
+claim rejected_covered      "host rejected, for funds, a payment the account could cover" needs host_rejected funds_reason
+claim rejected_no_reason    "host rejected without a reason code"              needs host_rejected
+claim malformed             "the response is not a recognized status"          needs no_decision
+claim accepted_wrong_ccy    "host accepted a cross-currency instruction with no FX agreed" needs ccy_mismatch host_accepted
+claim accepted_back_valued  "host accepted a back-valued instruction"          needs back_valued host_accepted
+claim accepted_duplicate    "host processed a duplicate instruction"           needs duplicate host_accepted
+
+# A funds rejection is only wrong when the account could cover the payment.
+over_balance    rebuts rejected_covered
+balance_unknown rebuts rejected_covered
+# A rejection that carries a reason is not a reasonless rejection.
+reason_given    rebuts rejected_no_reason
+
+# ─── what the evidence cannot settle ────────────────────────────────────────
+# With no seeded balance prova cannot tell whether the payment was within funds. Mutual rebuttal is how
+# "cannot tell" is said, and it carries through to the verdict as Indeterminate.
+claim  maybe_short "the payment may exceed the available balance"   needs balance_unknown
+excuse maybe_ok    "the payment may be within the available balance" needs balance_unknown
+maybe_short rebuts maybe_ok
+maybe_ok    rebuts maybe_short
+
+# An unknown overdraft might authorise an over-balance acceptance; nothing here confirms it either way.
+excuse overdraft             "an overdraft facility may authorise it" needs overdraft_unknown
+claim  overdraft_unconfirmed "the overdraft limit is unknown"          needs overdraft_unknown
+overdraft             undercuts accepted_over_balance
+overdraft             rebuts    overdraft_unconfirmed
+overdraft_unconfirmed rebuts    overdraft
+
+# ─── the verdict ────────────────────────────────────────────────────────────
+action pass idle
+action fail safe when any accepted_over_balance wrong_reason rejected_covered rejected_no_reason malformed accepted_wrong_ccy accepted_back_valued accepted_duplicate maybe_short
+prefer fail over pass
