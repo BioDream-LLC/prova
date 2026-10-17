@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/biodream-llc/prova/internal/engine"
+	"github.com/biodream-llc/prova/internal/sims"
 	"github.com/biodream-llc/prova/internal/store"
 )
 
@@ -19,8 +20,8 @@ func TestTheManualBuildsFromTheServer(t *testing.T) {
 	fs := flag.NewFlagSet("prova", flag.ContinueOnError)
 	defineServerFlags(fs)
 	eng := engine.New()
-	for _, s := range simTargets {
-		eng.AddTarget(engine.Target{Name: s.name, Protocol: s.protocol, Note: s.note})
+	for _, s := range sims.Specs {
+		eng.AddTarget(engine.Target{Name: s.Name, Protocol: s.Protocol, Note: s.Note})
 	}
 	doc, err := buildManual(eng, fs)
 	if err != nil {

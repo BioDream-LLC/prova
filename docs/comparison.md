@@ -24,6 +24,18 @@ not a bare pass/fail or an AI explanation.
 | 12 | FIX session testing (logon/seqnum/heartbeat) | VeriFIX, FIXSIM | **FIX session layer**: Logon handshake, heartbeat/TestRequest, sequence numbers, BodyLength + CheckSum verification |
 | 13 | Traffic capture & replay | Paragon, VeriFIX | **Record & replay**: capture a JSONL cassette, re-prove it offline with no live target |
 
-All 13 are implemented. Beyond parity, prova decides every verdict with **two independent engines** —
-its Go casebook and quorum's cbc-compiled casebook, which agree on all 3,456 combinations in the
-cross-engine test — and re-checks the framework with a SAT solver (CaDiCaL).
+prova has a response to each of the 13. That is coverage by category, not depth: the established tools
+ship far more messages, dialects and cases. What prova has, and what is still missing:
+
+| Area | prova (v0.1) | Gap |
+|---|---|---|
+| ISO 20022 messages | pacs.008, pacs.009, pacs.004, camt.056 → camt.029, pacs.028 → pacs.002 | camt.052/053/054, pain.001/002, pacs.010, admi; XSD and usage-guideline (CBPR+, SEPA, FedNow) validation |
+| ISO 8583 | 0100, 0200, 0400, 0800; secondary bitmap; DE39 codes | scheme dialects (Visa Base I, Mastercard), 0120/0420 advices, EMV DE55, PIN and MAC, binary bitmaps and BCD |
+| FIX | 4.4: D, F, G, H; ExecutionReport, OrderCancelReject; session layer | FIX 4.2 and 5.0 SP2/FIXT, partial fills, market data, resend and gap fill |
+| Scenarios | 66 scenarios, 11 suites | case libraries of hundreds to thousands; official scheme certification sets |
+| Rules | 16 controls, written twice and cross-checked | usage-guideline rules per market |
+
+Beyond the categories, prova decides every verdict with **two independent engines** — its Go casebook
+and quorum's cbc-compiled casebook (23 readings; cbc validates all 8,388,608 states), which agree on all
+114,048 generated cases and on every shipped scenario — and re-checks the framework with a SAT solver
+(CaDiCaL).

@@ -1,6 +1,7 @@
-// Package iso8583 implements prova's second protocol adapter: ISO 8583 card authorisation messages
-// (MTI 0100 request / 0110 response). It includes a real ASCII bitmap packager — the layer every
-// competitor's tooling is built around — an adapter over a length-prefixed TCP session, and a
+// Package iso8583 implements prova's second protocol adapter: ISO 8583 card messages — authorisation
+// (0100/0110), financial transaction (0200/0210), reversal (0400/0410) and network management
+// (0800/0810). It includes a real ASCII bitmap packager with primary and secondary bitmaps — the layer
+// every competitor's tooling is built around — an adapter over a length-prefixed TCP session, and a
 // built-in switch simulator so scenarios run end-to-end with no external system.
 package iso8583
 
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // field kinds.
@@ -31,13 +33,19 @@ var spec = map[int]fieldSpec{
 	4:  {fixed, 12}, // Amount, transaction (minor units)
 	7:  {fixed, 10}, // Transmission date & time
 	11: {fixed, 6},  // System trace audit number
+	14: {fixed, 4},  // Date, expiration (YYMM)
+	37: {fixed, 12}, // Retrieval reference number
+	38: {fixed, 6},  // Authorisation identification response
 	39: {fixed, 2},  // Response code
 	41: {fixed, 8},  // Card acceptor terminal id
 	49: {fixed, 3},  // Currency code, transaction (numeric)
+	70: {fixed, 3},  // Network management information code (secondary bitmap)
+	90: {fixed, 42}, // Original data elements (secondary bitmap)
 }
 
 // Pack encodes an MTI and a set of data elements into an ASCII ISO 8583 message: 4-char MTI, a
-// 16-hex-char primary bitmap, then the present fields in numeric order.
+// 16-hex-char primary bitmap (and, when any element above 64 is present, bit 1 set and a 16-hex-char
+// secondary bitmap), then the present fields in numeric order.
 func Pack(mti string, fields map[int]string) ([]byte, error) {
 	if len(mti) != 4 {
 		return nil, fmt.Errorf("iso8583: MTI must be 4 chars, got %q", mti)
@@ -51,9 +59,12 @@ func Pack(mti string, fields map[int]string) ([]byte, error) {
 	}
 	sort.Ints(des)
 
-	var bitmap [8]byte
+	var bitmap [16]byte
 	for _, de := range des {
 		bitmap[(de-1)/8] |= 1 << uint(7-((de-1)%8))
+		if de > 64 {
+			bitmap[0] |= 0x80 // bit 1: a secondary bitmap follows
+		}
 	}
 
 	var body strings.Builder
@@ -75,10 +86,14 @@ func Pack(mti string, fields map[int]string) ([]byte, error) {
 			fmt.Fprintf(&body, "%03d%s", len(v), v)
 		}
 	}
-	return []byte(mti + strings.ToUpper(fmt.Sprintf("%016x", bytesToUint64(bitmap))) + body.String()), nil
+	bm := strings.ToUpper(fmt.Sprintf("%016x", bytesToUint64(bitmap[:8])))
+	if bitmap[0]&0x80 != 0 {
+		bm += strings.ToUpper(fmt.Sprintf("%016x", bytesToUint64(bitmap[8:])))
+	}
+	return []byte(mti + bm + body.String()), nil
 }
 
-func bytesToUint64(b [8]byte) uint64 {
+func bytesToUint64(b []byte) uint64 {
 	var v uint64
 	for i := 0; i < 8; i++ {
 		v = v<<8 | uint64(b[i])
@@ -99,8 +114,20 @@ func Unpack(raw []byte) (string, map[int]string, error) {
 	}
 	fields := map[int]string{}
 	pos := 20
-	for bit := 2; bit <= 64; bit++ {
-		if bm&(1<<uint(64-bit)) == 0 {
+	var bm2 uint64
+	last := 64
+	if bm&(1<<63) != 0 {
+		if len(s) < 36 {
+			return "", nil, fmt.Errorf("iso8583: truncated secondary bitmap")
+		}
+		if bm2, err = strconv.ParseUint(s[20:36], 16, 64); err != nil {
+			return "", nil, fmt.Errorf("iso8583: bad secondary bitmap: %w", err)
+		}
+		pos, last = 36, 128
+	}
+	for bit := 2; bit <= last; bit++ {
+		present := bit <= 64 && bm&(1<<uint(64-bit)) != 0 || bit > 64 && bm2&(1<<uint(128-bit)) != 0
+		if !present {
 			continue
 		}
 		sp, ok := spec[bit]
@@ -139,14 +166,19 @@ func Unpack(raw []byte) (string, map[int]string, error) {
 
 var currencyNum = map[string]string{"EUR": "978", "USD": "840", "GBP": "826", "JPY": "392"}
 
-// Request is the normalized input a scenario fills to produce a 0100.
+// Request is the normalized input a scenario fills to produce a request message. MTI selects it:
+// 0100 (authorisation, the default), 0200 (financial), 0400 (reversal) or 0800 (network management).
 type Request struct {
+	MTI            string
 	PAN            string
 	ProcessingCode string
 	Amount         string // major units decimal, e.g. "150.00"
 	Currency       string
 	STAN           string
 	Terminal       string
+	Expiry         string // YYMM
+	OriginalSTAN   string // the STAN of the transaction a reversal reverses
+	NetworkCode    string // DE70 for 0800: 001 sign-on, 002 sign-off, 301 echo test
 }
 
 // FromRecord builds a Request from a flat string record.
@@ -158,6 +190,10 @@ func FromRecord(r map[string]string) Request {
 		return dflt
 	}
 	return Request{
+		MTI:            get("Message", "0100"),
+		Expiry:         get("Expiry", ""),
+		OriginalSTAN:   get("OriginalSTAN", ""),
+		NetworkCode:    get("NetworkCode", "301"),
 		PAN:            get("PAN", "4111111111111111"),
 		ProcessingCode: get("ProcessingCode", "000000"),
 		Amount:         get("Amount", "0.00"),
@@ -167,21 +203,48 @@ func FromRecord(r map[string]string) Request {
 	}
 }
 
-// Encode renders a 0100 authorisation request.
+// Encode renders the request message its MTI names.
 func Encode(req Request) ([]byte, error) {
+	mti := req.MTI
+	if mti == "" {
+		mti = "0100"
+	}
+	if mti == "0800" {
+		return Pack(mti, map[int]string{7: transmissionTime(), 11: req.STAN, 70: req.NetworkCode})
+	}
 	ccy := currencyNum[strings.ToUpper(req.Currency)]
 	if ccy == "" {
 		ccy = "978"
 	}
-	return Pack("0100", map[int]string{
+	f := map[int]string{
 		2:  req.PAN,
 		3:  req.ProcessingCode,
 		4:  fmt.Sprintf("%012d", minorUnits(req.Amount)),
+		7:  transmissionTime(),
 		11: req.STAN,
 		41: req.Terminal,
 		49: ccy,
-	})
+	}
+	if req.Expiry != "" {
+		f[14] = req.Expiry
+	}
+	switch mti {
+	case "0100", "0200":
+	case "0400":
+		// DE90: original MTI (4), original STAN (6), original transmission date/time (10), acquiring and
+		// forwarding institution ids (11 each).
+		orig := req.OriginalSTAN
+		if len(orig) < 6 {
+			orig = strings.Repeat("0", 6-len(orig)) + orig
+		}
+		f[90] = "0200" + orig[:6] + strings.Repeat("0", 32)
+	default:
+		return nil, fmt.Errorf("iso8583: no encoder for MTI %s", mti)
+	}
+	return Pack(mti, f)
 }
+
+func transmissionTime() string { return time.Now().UTC().Format("0102150405") }
 
 // Status is the normalized response: the response code and whether it approved.
 type Status struct {
@@ -190,15 +253,32 @@ type Status struct {
 	ResponseCode string // DE39: 00 approved; 51 insufficient funds; etc.
 }
 
-// EncodeResponse renders a 0110 authorisation response (used by the simulated switch).
-func EncodeResponse(reqFields map[int]string, de39 string) ([]byte, error) {
-	return Pack("0110", map[int]string{
+// ResponseMTI is the response to a request MTI: 0100 -> 0110, 0200 -> 0210, 0400 -> 0410, 0800 -> 0810.
+func ResponseMTI(mti string) string {
+	if len(mti) != 4 {
+		return "0110"
+	}
+	return mti[:2] + string(mti[2]+1) + mti[3:]
+}
+
+// EncodeResponse renders the response to a request (used by the simulated switch).
+func EncodeResponse(mti string, reqFields map[int]string, de39 string) ([]byte, error) {
+	if mti == "0800" {
+		return Pack("0810", map[int]string{
+			7: getDE(reqFields, 7, transmissionTime()), 11: getDE(reqFields, 11, "000001"), 39: de39, 70: getDE(reqFields, 70, "301"),
+		})
+	}
+	f := map[int]string{
 		3:  getDE(reqFields, 3, "000000"),
 		4:  getDE(reqFields, 4, "000000000000"),
 		11: getDE(reqFields, 11, "000001"),
 		39: de39,
 		49: getDE(reqFields, 49, "978"),
-	})
+	}
+	if de39 == "00" && mti != "0400" {
+		f[38] = "A" + getDE(reqFields, 11, "000001")[1:] // authorisation code
+	}
+	return Pack(ResponseMTI(mti), f)
 }
 
 func getDE(f map[int]string, de int, dflt string) string {

@@ -112,6 +112,17 @@ func Default() Casebook {
 		RuleCurrencyConsistency(),
 		RuleValueDate(),
 		RuleDuplicateInstruction(),
+		RuleFieldValidity(),
+		RuleAccountUsable(),
+		RuleTransactionLimit(),
+		RuleOriginalKnown(),
+		RuleWithinOriginal(),
+		RuleCancellation(),
+		RuleStatusReport(),
+		RuleMarketOpen(),
+		RuleInstrumentListed(),
+		RulePosition(),
+		RuleExpectedReason(),
 	}}
 }
 
@@ -164,8 +175,7 @@ func (cb Casebook) Prove(c Case) Result {
 }
 
 // RuleInsufficientFunds encodes the core funds rule, protocol-agnostic: a payment/authorisation that
-// exceeds the available balance must be rejected, and (when the scenario states the expected reason)
-// with the right reason code. It reads the canonical decision keys that every adapter emits
+// exceeds the available balance must be rejected (RuleExpectedReason checks the reason code). It reads the canonical decision keys that every adapter emits
 // (decision = accepted|rejected, rejectReason), so it judges ISO 20022 (AM04) and ISO 8583 (DE39=51)
 // alike. It returns Indeterminate when the evidence to decide (seeded balance, overdraft) is unknown.
 func RuleInsufficientFunds() Rule {
@@ -173,12 +183,14 @@ func RuleInsufficientFunds() Rule {
 		ID:    "funds.sufficiency",
 		Title: "A payment exceeding available funds must be rejected",
 		Apply: func(c Case, b *builder) {
+			if !fundsApply(c) {
+				return // no amount, or an instruction that does not debit the account (a return, a reversal)
+			}
 			amtStr := c.Request["Amount"]
 			ccy := c.Request["Currency"]
 			availStr := c.Context["availableBalance"]
 			decision := c.Response["decision"]
 			reason := c.Response["rejectReason"]
-			expectReason := c.Context["expectReason"]
 
 			b.add(af.Arg{ID: "ev_amt", Claim: "instructed amount " + amtStr + " " + ccy, Cites: []string{"request amount"}})
 
@@ -225,11 +237,7 @@ func RuleInsufficientFunds() Rule {
 				}
 				rej := af.Arg{ID: "host_reject", Claim: "host rejected the payment", Cites: []string{"response decision=rejected"}}
 				b.add(rej)
-				b.attack(short.ID, rej.ID, af.Undercut)
-				if expectReason != "" && reason != expectReason {
-					v := af.Arg{ID: "v_reason", Claim: "rejected, but reason " + reason + " is not the required " + expectReason, Cites: []string{"reject reason " + reason}}
-					b.violate(v)
-				}
+				b.attack(short.ID, rej.ID, af.Undercut) // the reason code is RuleExpectedReason's concern
 				return
 			}
 

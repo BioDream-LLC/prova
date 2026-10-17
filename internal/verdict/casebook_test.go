@@ -91,3 +91,45 @@ func TestInsufficientFundsOutcomes(t *testing.T) {
 		})
 	}
 }
+
+func TestWiderControlOutcomes(t *testing.T) {
+	accept := map[string]string{"decision": "accepted"}
+	rej := func(code string) map[string]string {
+		return map[string]string{"decision": "rejected", "rejectReason": code}
+	}
+	pay := map[string]string{"Amount": "90.00", "Currency": "EUR"}
+	tests := []struct {
+		name string
+		req  map[string]string
+		ctx  map[string]string
+		resp map[string]string
+		want Outcome
+	}{
+		{"invalid-bic-accepted", map[string]string{"Amount": "90.00", "Currency": "EUR", "CreditBIC": "BANK-FR"}, map[string]string{"availableBalance": "142.00"}, accept, Fail},
+		{"invalid-bic-rejected", map[string]string{"Amount": "90.00", "Currency": "EUR", "CreditBIC": "BANK-FR"}, map[string]string{"availableBalance": "142.00", "expectReason": "RC01"}, rej("RC01"), Pass},
+		{"invalid-bic-wrong-reason", map[string]string{"Amount": "90.00", "Currency": "EUR", "CreditBIC": "BANK-FR"}, map[string]string{"availableBalance": "142.00", "expectReason": "RC01"}, rej("AC01"), Fail},
+		{"closed-accepted", pay, map[string]string{"availableBalance": "142.00", "accountStatus": "closed"}, accept, Fail},
+		{"expired-accepted", map[string]string{"Amount": "90.00", "PAN": "4111111111111111", "Expiry": "2401"}, map[string]string{"availableBalance": "142.00", "processingDate": "2026-10-15"}, accept, Fail},
+		{"valid-card-accepted", map[string]string{"Amount": "90.00", "PAN": "4111111111111111", "Expiry": "3012"}, map[string]string{"availableBalance": "142.00", "processingDate": "2026-10-15"}, accept, Pass},
+		{"over-limit-accepted", pay, map[string]string{"availableBalance": "142.00", "transactionLimit": "50.00"}, accept, Fail},
+		{"return-no-funds-check", pay, map[string]string{"debit": "false"}, accept, Pass},
+		{"return-unknown-accepted", pay, map[string]string{"debit": "false", "originalKnown": "false"}, accept, Fail},
+		{"return-over-original", map[string]string{"Amount": "120.00", "Currency": "EUR"}, map[string]string{"debit": "false", "originalAmount": "90.00"}, accept, Fail},
+		{"cancel-final-accepted", map[string]string{}, map[string]string{"originalFinal": "true"}, accept, Fail},
+		{"cancel-pending-refused", map[string]string{}, map[string]string{"originalPending": "true"}, rej("CUST"), Fail},
+		{"cancel-pending-done", map[string]string{}, map[string]string{"originalPending": "true"}, accept, Pass},
+		{"status-wrong", map[string]string{}, map[string]string{"originalStatus": "PDNG"}, map[string]string{"decision": "accepted", "reportedStatus": "ACSC"}, Fail},
+		{"status-right", map[string]string{}, map[string]string{"originalStatus": "PDNG"}, map[string]string{"decision": "accepted", "reportedStatus": "PDNG"}, Pass},
+		{"closed-market-accepted", map[string]string{"OrderQty": "9", "Price": "10.00"}, map[string]string{"marketOpen": "false"}, accept, Fail},
+		{"short-sale-accepted", map[string]string{"OrderQty": "25", "Side": "sell", "Price": "10.00"}, map[string]string{"position": "20"}, accept, Fail},
+		{"sale-within-position", map[string]string{"OrderQty": "15", "Side": "sell", "Price": "10.00"}, map[string]string{"position": "20"}, accept, Pass},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res := Default().Prove(Case{Request: tc.req, Context: tc.ctx, Response: tc.resp})
+			if res.Outcome != tc.want {
+				t.Fatalf("outcome=%s want %s (chain=%+v)", res.Outcome, tc.want, res.Chain)
+			}
+		})
+	}
+}

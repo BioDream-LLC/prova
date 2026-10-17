@@ -191,39 +191,78 @@ func quoted(s string) string {
 func (b *Book) Observations() []string { return append([]string(nil), b.obs...) }
 
 // Bind is the binding layer: it turns an exchange into the set of readings the casebook reasons over.
-// All numeric and date comparisons live here, as quorum requires — the casebook sees booleans only.
+// All numeric, date and checksum work lives here, as quorum requires — the casebook sees booleans only.
 func Bind(c verdict.Case) map[string]bool {
 	r := c.Request
-	ctx := c.Context
+	ctx := func(k string) string { return strings.TrimSpace(c.Context[k]) }
 	resp := c.Response
 	decision := resp["decision"]
 	reason := resp["rejectReason"]
 	accepted := decision == "accepted"
 	rejected := decision == "rejected"
 
-	availStr := ctx["availableBalance"]
-	balanceKnown := availStr != ""
-	over := balanceKnown && minor(r["Amount"]) > minor(availStr)
+	amount := strings.TrimSpace(r["Amount"])
+	debits := amount != "" && ctx("debit") != "false" // returns, reversals and cancellations do not debit
+	avail := ctx("availableBalance")
+	balanceKnown := avail != ""
+	over := debits && balanceKnown && minor(amount) > minor(avail)
 
-	acctCcy := strings.ToUpper(strings.TrimSpace(ctx["accountCurrency"]))
+	acctCcy := strings.ToUpper(ctx("accountCurrency"))
 	reqCcy := strings.ToUpper(strings.TrimSpace(r["Currency"]))
-	vd, sd := strings.TrimSpace(ctx["valueDate"]), strings.TrimSpace(ctx["settlementDate"])
-	expect := ctx["expectReason"]
+	vd, sd := ctx("valueDate"), ctx("settlementDate")
 
-	return map[string]bool{
-		"host_accepted":     accepted,
-		"host_rejected":     rejected,
-		"no_decision":       decision == "",
-		"reason_given":      reason != "",
-		"reason_wrong":      rejected && over && expect != "" && reason != expect,
-		"funds_reason":      rejected && (reason == "" || reason == "AM04" || reason == "51"),
-		"over_balance":      over,
-		"balance_unknown":   !balanceKnown,
-		"overdraft_unknown": ctx["overdraftLimit"] == "unknown",
-		"ccy_mismatch":      acctCcy != "" && reqCcy != "" && acctCcy != reqCcy && ctx["fxAllowed"] != "true",
-		"back_valued":       vd != "" && sd != "" && vd < sd && ctx["backValueAllowed"] != "true",
-		"duplicate":         ctx["duplicate"] == "true",
+	// A card is good through the end of its expiry month (Expiry is YYMM; processingDate YYYY-MM-DD).
+	expired := false
+	if exp, pd := strings.TrimSpace(r["Expiry"]), ctx("processingDate"); len(exp) == 4 && len(pd) >= 7 {
+		expired = exp < pd[2:4]+pd[5:7]
 	}
+	switch strings.ToLower(ctx("accountStatus")) {
+	case "closed", "blocked", "frozen", "lost", "stolen":
+		expired = true // unusable, for the same reason: nothing may be accepted on it
+	}
+	unavailable := expired
+
+	exceeds := func(limitKey string) bool {
+		l := ctx(limitKey)
+		return amount != "" && l != "" && minor(amount) > minor(l)
+	}
+	side := strings.ToLower(strings.TrimSpace(r["Side"]))
+	short := ctx("position") != "" && (side == "sell" || side == "2") && ctx("shortSellAllowed") != "true" &&
+		minor(r["OrderQty"]) > minor(ctx("position"))
+
+	read := map[string]bool{
+		"over_balance":        over,
+		"ccy_mismatch":        acctCcy != "" && reqCcy != "" && acctCcy != reqCcy && ctx("fxAllowed") != "true",
+		"back_valued":         vd != "" && sd != "" && vd < sd && ctx("backValueAllowed") != "true",
+		"duplicate":           ctx("duplicate") == "true",
+		"instruction_invalid": invalidInstruction(r),
+		"account_unavailable": unavailable,
+		"over_limit":          exceeds("transactionLimit"),
+		"original_unknown":    ctx("originalKnown") == "false",
+		"exceeds_original":    exceeds("originalAmount"),
+		"already_final":       ctx("originalFinal") == "true",
+		"service_closed":      ctx("marketOpen") == "false",
+		"instrument_unknown":  ctx("instrumentKnown") == "false",
+		"position_short":      short,
+	}
+	// A rejection is required when any control forbids acceptance; only then is its reason judged.
+	required := false
+	for _, v := range read {
+		required = required || v
+	}
+	expect := ctx("expectReason")
+
+	read["host_accepted"] = accepted
+	read["host_rejected"] = rejected
+	read["no_decision"] = decision == ""
+	read["reason_given"] = reason != ""
+	read["reason_wrong"] = rejected && required && expect != "" && reason != expect
+	read["funds_reason"] = debits && rejected && (reason == "" || reason == "AM04" || reason == "51")
+	read["balance_unknown"] = debits && !balanceKnown
+	read["overdraft_unknown"] = ctx("overdraftLimit") == "unknown"
+	read["cancellable"] = ctx("originalPending") == "true"
+	read["status_mismatch"] = ctx("originalStatus") != "" && strings.TrimSpace(resp["reportedStatus"]) != ctx("originalStatus")
+	return read
 }
 
 // Framework instantiates the casebook for a set of present readings: the fixed attacks, plus a

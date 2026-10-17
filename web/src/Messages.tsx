@@ -111,7 +111,7 @@ export function Messages() {
               <span className="font-mono text-xs text-muted">{active?.kind} · wire</span>
               <span className="text-xs text-faint">{active?.summary}</span>
             </div>
-            <pre className="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed text-muted">{active?.raw}</pre>
+            <pre className="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all text-muted">{active?.raw?.split("\x01").join("|")}</pre>
           </div>
         </div>
       )}

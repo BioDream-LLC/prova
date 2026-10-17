@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { basicSetup, EditorView } from 'codemirror'
 import { javascript } from '@codemirror/lang-javascript'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { Play, Loader2 } from 'lucide-react'
+import { Play, Loader2, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import { Page, Pill } from './ui'
@@ -20,6 +20,7 @@ function preview(s: Scenario): string {
   return (
     `scenario(${JSON.stringify(s.name)}, {\n` +
     `  protocol: ${JSON.stringify(s.protocol)},\n` +
+    (s.message ? `  message: ${JSON.stringify(s.message)},\n` : '') +
     `  request: ${obj(s.request, '  ')},\n` +
     `  context: ${obj(s.context, '  ')},\n` +
     `  expect: ${JSON.stringify(s.expect)},\n` +
@@ -35,15 +36,35 @@ export function Scenarios() {
   const [selectedId, setSelectedId] = useState<string>()
   const [target, setTarget] = useState<string>('')
   const [running, setRunning] = useState(false)
+  const [protocol, setProtocol] = useState<string>('all')
+  const [query, setQuery] = useState('')
 
   const canRun = useCanRun()
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return scenarios.filter(
+      (s) =>
+        (protocol === 'all' || s.protocol === protocol) &&
+        (!q || `${s.name} ${s.id} ${s.expect} ${s.description}`.toLowerCase().includes(q)),
+    )
+  }, [scenarios, protocol, query])
   const selected = useMemo(
-    () => scenarios.find((s) => s.id === selectedId) ?? scenarios[0],
-    [scenarios, selectedId],
+    () => scenarios.find((s) => s.id === selectedId) ?? shown[0] ?? scenarios[0],
+    [scenarios, shown, selectedId],
+  )
+  // Offer only the targets that speak the selected scenario's protocol, compliant first.
+  const usable = useMemo(
+    () => targets.filter((t) => !selected || t.protocol === selected.protocol),
+    [targets, selected],
   )
   useEffect(() => {
-    if (!target && targets.length) setTarget(targets[0].name)
-  }, [targets, target])
+    if (usable.length && !usable.some((t) => t.name === target)) setTarget(usable[0].name)
+  }, [usable, target])
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: scenarios.length }
+    for (const s of scenarios) c[s.protocol] = (c[s.protocol] ?? 0) + 1
+    return c
+  }, [scenarios])
 
   const editorRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -100,8 +121,8 @@ export function Scenarios() {
             onChange={(e) => setTarget(e.target.value)}
             className="rounded-lg border border-line bg-surface/60 px-2.5 py-1.5 text-sm text-text outline-none"
           >
-            {targets.map((t) => (
-              <option key={t.name} value={t.name}>{t.name}</option>
+            {usable.map((t) => (
+              <option key={t.name} value={t.name}>{t.name}{t.note ? ` — ${t.note}` : ''}</option>
             ))}
           </select>
           {canRun ? (
@@ -116,10 +137,36 @@ export function Scenarios() {
         </div>
       }
     >
-      <div className="grid h-full grid-cols-[300px_1fr] gap-4">
-        <div className="overflow-auto rounded-[var(--radius)] border border-line bg-surface/40">
-          <div className="border-b border-line px-4 py-3 text-xs font-medium uppercase tracking-wider text-faint">Scenarios</div>
-          {scenarios.map((s) => (
+      <div className="grid h-full grid-cols-[340px_1fr] gap-4">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-[var(--radius)] border border-line bg-surface/40">
+          <div className="space-y-2.5 border-b border-line px-3 py-3">
+            <div className="flex gap-1" role="tablist" aria-label="Protocol">
+              {[['all', 'All'], ['iso20022', 'ISO 20022'], ['iso8583', 'ISO 8583'], ['fix', 'FIX']].map(([k, label]) => (
+                <button
+                  key={k}
+                  role="tab"
+                  aria-selected={protocol === k}
+                  onClick={() => setProtocol(k)}
+                  className={`rounded-md px-2 py-1 text-xs transition-colors ${protocol === k ? 'bg-accent/20 text-text' : 'text-muted hover:bg-surface2/60'}`}
+                >
+                  {label} <span className="text-faint">{counts[k] ?? 0}</span>
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 rounded-md border border-line bg-bg/40 px-2.5 py-1.5">
+              <Search className="h-3.5 w-3.5 text-faint" aria-hidden />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search scenarios"
+                aria-label="Search scenarios"
+                className="w-full bg-transparent text-sm text-text outline-none placeholder:text-faint"
+              />
+            </label>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto">
+          {shown.length === 0 && <p className="px-4 py-6 text-sm text-faint">No scenario matches.</p>}
+          {shown.map((s) => (
             <button
               key={s.id}
               onClick={() => setSelectedId(s.id)}
@@ -127,16 +174,20 @@ export function Scenarios() {
             >
               <span className="min-w-0">
                 <span className="block truncate text-text">{s.name}</span>
-                <span className="text-[11px] uppercase text-faint">{s.protocol} · expect {s.expect}</span>
+                <span className="block truncate text-[11px] text-faint">expect {s.expect}</span>
               </span>
             </button>
           ))}
+          </div>
         </div>
 
         <div className="flex min-h-0 flex-col overflow-hidden rounded-[var(--radius)] border border-line bg-surface/40">
           <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
             <span className="font-mono text-xs text-muted">{selected?.name}</span>
-            <Pill>{selected?.protocol}</Pill>
+            <span className="flex gap-1.5">
+              {selected?.message && <Pill>{selected.message}</Pill>}
+              <Pill>{selected?.protocol}</Pill>
+            </span>
           </div>
           {selected?.description && (
             <p className="border-b border-line/60 px-4 py-2.5 text-sm text-muted">{selected.description}</p>

@@ -67,10 +67,14 @@ type conn struct {
 	lastTx time.Time
 }
 
-// Encode turns a data record into a pacs.008 document. The template name is reserved for future
-// message kinds; today the adapter speaks the customer-credit-transfer flow.
-func (c *conn) Encode(_ adapter.Template, data adapter.Record) ([]byte, error) {
-	return Encode(FromRecord(data))
+// Encode turns a data record into the ISO 20022 message the template names (pacs.008 when it names
+// none): pacs.008, pacs.009, pacs.004, camt.056 or pacs.028.
+func (c *conn) Encode(tmpl adapter.Template, data adapter.Record) ([]byte, error) {
+	req := FromRecord(data)
+	if tmpl.Name != "" && tmpl.Name != "iso20022" {
+		req.Kind = tmpl.Name
+	}
+	return Encode(req)
 }
 
 // Send writes the framed message and records the send time for latency.
@@ -85,7 +89,7 @@ func (c *conn) Send(ctx context.Context, msg []byte) (adapter.Handle, error) {
 	return adapter.Handle{ID: "1"}, nil
 }
 
-// Await reads the next framed response, decodes the pacs.002 and normalizes it.
+// Await reads the next framed response, decodes the pacs.002 (or camt.029) and normalizes it.
 func (c *conn) Await(ctx context.Context, _ adapter.Handle) (adapter.Decoded, error) {
 	if dl, ok := ctx.Deadline(); ok {
 		_ = c.c.SetReadDeadline(dl)

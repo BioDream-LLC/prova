@@ -126,10 +126,14 @@ type conn struct {
 	lastTx time.Time
 }
 
-// Encode builds a NewOrderSingle from the scenario record and remembers it for correlation.
-func (c *conn) Encode(_ adapter.Template, data adapter.Record) ([]byte, error) {
+// Encode builds the message the template names (a NewOrderSingle when it names none) from the
+// scenario record, and remembers it for correlation.
+func (c *conn) Encode(tmpl adapter.Template, data adapter.Record) ([]byte, error) {
 	req := FromRecord(data)
-	msg := EncodeOrder(c.seq, c.sender, c.target, now(), req)
+	if tmpl.Name != "" && tmpl.Name != "fix" {
+		req.MsgType = msgType(tmpl.Name)
+	}
+	msg := EncodeRequest(c.seq, c.sender, c.target, now(), req)
 	c.seq++
 	m, err := parse(msg)
 	if err != nil {
@@ -154,8 +158,8 @@ func (c *conn) Send(ctx context.Context, msg []byte) (adapter.Handle, error) {
 	return adapter.Handle{ID: id}, nil
 }
 
-// Await reads session messages, answering TestRequests with Heartbeats, until the ExecutionReport
-// (or Reject) that resolves the order arrives.
+// Await reads session messages, answering TestRequests with Heartbeats, until the ExecutionReport,
+// OrderCancelReject or session Reject that resolves the request arrives.
 func (c *conn) Await(ctx context.Context, _ adapter.Handle) (adapter.Decoded, error) {
 	if dl, ok := ctx.Deadline(); ok {
 		_ = c.c.SetReadDeadline(dl)
@@ -176,7 +180,7 @@ func (c *conn) Await(ctx context.Context, _ adapter.Handle) (adapter.Decoded, er
 			continue
 		case MsgHeartbeat:
 			continue
-		case MsgExecutionReport, MsgReject:
+		case MsgExecutionReport, MsgReject, MsgCancelReject:
 			lat := time.Since(c.lastTx)
 			st, err := DecodeResponse(raw)
 			if err != nil {

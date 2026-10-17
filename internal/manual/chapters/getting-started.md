@@ -23,7 +23,7 @@ The password is shown once. prova keeps only its hash; if you lose it, `prova us
 
 ## Signing in
 
-Open `https://localhost:8443` and sign in as `admin` with the password from the log. The first screen is the dashboard, and it already has verdicts on it: on a fresh installation prova drives a dozen scenarios at its built-in simulated targets, so every screen has something real to show. They are real runs, proved like any other.
+Open `https://localhost:8443` and sign in as `admin` with the password from the log. The first screen is the dashboard, and it already has verdicts on it: on a fresh installation prova drives twenty scenarios at its built-in simulated targets, so every screen has something real to show. They are real runs, proved like any other.
 
 ## The first verdict
 

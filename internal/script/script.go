@@ -6,7 +6,7 @@
 // The DSL is one call:
 //
 //	scenario("payment over balance", {
-//	  protocol: "iso20022",
+//	  protocol: "iso20022",          // message: "pacs.009", "0400", "F" ... (optional)
 //	  request:  { Amount: "150.00", Currency: "EUR", DebtorAcct: "ACC-EUR-1", EndToEndId: "E2E-1" },
 //	  context:  { availableBalance: "142.00" },
 //	  expect:   "reject (AM04)",
@@ -152,6 +152,7 @@ func toScenario(name string, def any) (engine.Scenario, error) {
 		ID:       slug(name),
 		Name:     name,
 		Protocol: str(m["protocol"], "iso20022"),
+		Message:  str(m["message"], ""),
 		Expect:   str(m["expect"], ""),
 		Request:  strMap(m["request"]),
 		Context:  strMap(m["context"]),

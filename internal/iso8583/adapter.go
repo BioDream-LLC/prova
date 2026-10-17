@@ -65,8 +65,13 @@ type conn struct {
 	lastTx time.Time
 }
 
-func (c *conn) Encode(_ adapter.Template, data adapter.Record) ([]byte, error) {
-	return Encode(FromRecord(data))
+// Encode renders the request the template names by MTI (0100 when it names none).
+func (c *conn) Encode(tmpl adapter.Template, data adapter.Record) ([]byte, error) {
+	req := FromRecord(data)
+	if tmpl.Name != "" && tmpl.Name != "iso8583" {
+		req.MTI = tmpl.Name
+	}
+	return Encode(req)
 }
 
 func (c *conn) Send(ctx context.Context, msg []byte) (adapter.Handle, error) {

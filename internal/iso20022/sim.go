@@ -10,14 +10,17 @@ import (
 	"time"
 )
 
-// Sim is a built-in simulated payment host. It accepts pacs.008 credit transfers and answers with a
-// pacs.002 status report, deciding accept/reject against an account ledger. prova scenarios run
-// against it with no external system; it is also the fixture every test and demo targets.
+// Sim is a built-in simulated payment host. It accepts pacs.008 and pacs.009 credit transfers, pacs.004
+// returns, camt.056 cancellation requests and pacs.028 status requests, and answers each with a pacs.002
+// status report (or, for a cancellation, a camt.029 resolution), deciding against an account ledger and
+// the originals it has processed. prova scenarios run against it with no external system; it is also
+// the fixture every test and demo targets.
 //
 // Behaviour is deliberately switchable so prova can be shown catching a real defect:
 //
-//	Mode "" / "compliant"       — rejects (AM04) when the debtor cannot cover the amount, else accepts.
-//	Mode "accept-all" (buggy)   — accepts everything, including payments over the available balance.
+//	Mode "" / "compliant"       — enforces every control below with the ISO external reason codes.
+//	Mode "accept-all" (buggy)   — accepts everything: over-balance payments, invalid instructions,
+//	                              returns of unknown originals, cancellations of final ones.
 //	Mode "wrong-reason" (buggy) — rejects insufficient-funds correctly but with the wrong reason code.
 type Sim struct {
 	// Ledger maps debtor account id -> available balance in minor units (cents).
@@ -30,9 +33,24 @@ type Sim struct {
 	// SettlementDate is the host's processing date (ISO YYYY-MM-DD); a compliant host rejects (DT01)
 	// an instruction value-dated before it. Empty means "today".
 	SettlementDate string
+	// AccountStatus maps an account id to "closed" (AC04) or "blocked" (AC06).
+	AccountStatus map[string]string
+	// Limit maps an account id to its per-transaction limit in minor units (AM02 above it).
+	Limit map[string]int64
+	// Originals are the instructions the host has already processed, by EndToEndId: what a return,
+	// cancellation or status request refers to.
+	Originals map[string]Original
 
 	mu   sync.Mutex
 	seen map[string]bool // EndToEndIds the tester has declared already processed
+}
+
+// Original is an instruction the host has processed.
+type Original struct {
+	Amount int64  // minor units
+	Status string // as a status report states it: ACSC (settled), PDNG (pending) ...
+	// Returned marks an original whose funds have already been sent back.
+	Returned bool
 }
 
 // MarkSeen declares an EndToEndId as already processed, so a compliant host rejects a resubmission
@@ -50,29 +68,79 @@ func (s *Sim) MarkSeen(e2e string) {
 // Decide computes the status the host returns for a request. Exported so tests and the engine can
 // evaluate the host logic without a socket.
 func (s *Sim) Decide(req Request) Status {
+	resp := Status{Kind: KindPacs002, MsgId: "RSP-" + req.MsgId, OrgnlEndToEndId: req.EndToEndId}
+	reject := func(code string) Status { resp.TxSts, resp.ReasonCode = "RJCT", code; return resp }
+	accept := func() Status { resp.TxSts = "ACSP"; return resp }
+
+	s.mu.Lock()
+	orig, known := s.Originals[req.OrgnlEndToEndId]
+	s.mu.Unlock()
+
+	switch req.Kind {
+	case KindCamt056:
+		resp.Kind, resp.OrgnlEndToEndId = KindCamt029, req.OrgnlEndToEndId
+		switch {
+		case s.Mode == "accept-all":
+			resp.TxSts = "CNCL" // bug: cancels whatever it is asked to
+		case !known:
+			resp.TxSts, resp.ReasonCode = "RJCR", "NOOR" // no original transaction received
+		case orig.Returned:
+			resp.TxSts, resp.ReasonCode = "RJCR", "ARDT" // already returned
+		case orig.Status != "PDNG":
+			resp.TxSts, resp.ReasonCode = "RJCR", "CUST" // settled: only the creditor can agree to return it
+		default:
+			resp.TxSts = "CNCL"
+		}
+		return resp
+	case KindPacs028:
+		resp.OrgnlEndToEndId = req.OrgnlEndToEndId
+		switch {
+		case s.Mode == "accept-all":
+			resp.TxSts = "ACSC" // bug: reports every payment settled
+		case !known:
+			return reject("NOOR")
+		default:
+			resp.TxSts = orig.Status
+		}
+		return resp
+	case KindPacs004:
+		resp.OrgnlEndToEndId = req.OrgnlEndToEndId
+		switch {
+		case s.Mode == "accept-all":
+			return accept()
+		case !validAmount(req.Amount, req.Currency):
+			return reject("AM12")
+		case !known:
+			return reject("NOOR")
+		case orig.Returned:
+			return reject("AM05") // a second return of the same payment
+		case minorUnits(req.Amount) > orig.Amount:
+			return reject("AM09") // wrong amount: more than was paid
+		}
+		return accept()
+	}
+
+	// A credit transfer: pacs.008 or pacs.009.
 	s.mu.Lock()
 	avail := s.Ledger[req.DebtorAcct]
 	dup := s.seen[req.EndToEndId]
+	status := s.AccountStatus[req.DebtorAcct]
+	limit, limited := s.Limit[req.DebtorAcct]
 	s.mu.Unlock()
-
-	resp := Status{MsgId: "RSP-" + req.MsgId, OrgnlEndToEndId: req.EndToEndId}
-	amt := minorUnits(req.Amount)
-	short := amt > avail
+	amount := minorUnits(req.Amount)
+	short := amount > avail
 
 	switch s.Mode {
 	case "accept-all":
-		resp.TxSts = "ACSP" // bug: ignores every control
-		return resp
+		return accept() // bug: ignores every control
 	case "wrong-reason":
 		if short {
-			resp.TxSts, resp.ReasonCode = "RJCT", "AC04" // bug: AC04 (closed account) instead of AM04
-		} else {
-			resp.TxSts = "ACSP"
+			return reject("AC04") // bug: AC04 (closed account) instead of AM04
 		}
-		return resp
+		return accept()
 	}
 
-	// compliant: enforce controls in order, then funds.
+	// compliant: validate the message, then enforce the controls in order, then funds.
 	bookCcy := s.BookCcy
 	if bookCcy == "" {
 		bookCcy = "EUR"
@@ -82,18 +150,33 @@ func (s *Sim) Decide(req Request) Status {
 		settle = time.Now().UTC().Format("2006-01-02")
 	}
 	switch {
+	case !knownCurrency(req.Currency):
+		return reject("AM11") // invalid transaction currency
+	case !validAmount(req.Amount, req.Currency):
+		if amount == 0 {
+			return reject("AM01") // zero amount
+		}
+		return reject("AM12") // invalid amount
+	case !validBIC(req.DebtorBIC) || !validBIC(req.CreditBIC):
+		return reject("RC01") // bank identifier incorrect
+	case req.DebtorIBAN != "" && !validIBAN(req.DebtorIBAN), req.CreditIBAN != "" && !validIBAN(req.CreditIBAN):
+		return reject("AC01") // incorrect account number
+	case status == "closed":
+		return reject("AC04")
+	case status == "blocked":
+		return reject("AC06")
 	case req.Currency != "" && !strings.EqualFold(req.Currency, bookCcy):
-		resp.TxSts, resp.ReasonCode = "RJCT", "AM03" // unsupported currency
+		return reject("AM03") // not allowed currency
 	case dup:
-		resp.TxSts, resp.ReasonCode = "RJCT", "AM05" // duplication
+		return reject("AM05") // duplication
 	case req.ValueDate != "" && req.ValueDate < settle:
-		resp.TxSts, resp.ReasonCode = "RJCT", "DT01" // invalid date (back-valued)
+		return reject("DT01") // invalid date (back-valued)
+	case limited && amount > limit:
+		return reject("AM02") // not allowed amount: over the transaction limit
 	case short:
-		resp.TxSts, resp.ReasonCode = "RJCT", "AM04" // insufficient funds
-	default:
-		resp.TxSts = "ACSP"
+		return reject("AM04") // insufficient funds
 	}
-	return resp
+	return accept()
 }
 
 // Serve listens on addr and handles framed pacs.008/pacs.002 exchanges until the context is

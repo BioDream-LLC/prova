@@ -95,7 +95,7 @@ func runCLI(args []string) int {
 			fmt.Fprintln(os.Stderr, "prova:", err)
 			return 1
 		}
-		fmt.Printf("%-7s %-40s %-12s %s\n", run.ID, run.Scenario, run.Target, run.Outcome)
+		fmt.Printf("%-7s %-52s %-16s %s\n", run.ID, run.Scenario, run.Target, run.Outcome)
 		res := engine.SuiteResult{ID: "single", Name: run.Scenario, Target: run.Target, Runs: []engine.Run{run}, Outcome: run.Outcome}
 		switch run.Outcome {
 		case "pass":
@@ -152,7 +152,7 @@ func printSuite(res engine.SuiteResult) {
 				disagree++
 			}
 		}
-		fmt.Printf("  %-7s %-40s %-14s %s\n", r.ID, r.Scenario, r.Outcome, second)
+		fmt.Printf("  %-7s %-52s %-14s %s\n", r.ID, r.Scenario, r.Outcome, second)
 	}
 	fmt.Printf("  => %s  (%d pass, %d fail, %d indeterminate, %dms; engines disagree on %d)\n",
 		res.Outcome, res.Pass, res.Fail, res.Indeterminate, res.DurationMs, disagree)

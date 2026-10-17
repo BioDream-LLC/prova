@@ -27,7 +27,7 @@ func TestPackUnpackRoundTrip(t *testing.T) {
 
 func TestResponseRoundTrip(t *testing.T) {
 	req := map[int]string{3: "000000", 4: "000000015000", 11: "000101", 49: "978"}
-	raw, err := EncodeResponse(req, "51")
+	raw, err := EncodeResponse("0100", req, "51")
 	if err != nil {
 		t.Fatal(err)
 	}

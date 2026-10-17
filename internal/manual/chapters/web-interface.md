@@ -12,7 +12,7 @@ The dashboard is the state of testing at a glance: how many verdicts passed, fai
 
 ## Scenarios
 
-The scenario library and the script editor. Choose a scenario to see its request, the context it seeds, and what it expects; choose a target and run it. The editor takes JavaScript or Lua (see [Scenarios and Scripting](#scenarios-and-scripting)) and runs what you write against the chosen target.
+The scenario library and the script editor. Filter the library by protocol or search it, and choose a scenario to see the message it sends, its request, the context it seeds, and what it expects; choose a target — only those that speak the scenario's protocol are offered — and run it. The editor takes JavaScript or Lua (see [Scenarios and Scripting](#scenarios-and-scripting)) and runs what you write against the chosen target.
 
 ## Suites
 

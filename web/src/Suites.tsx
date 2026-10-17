@@ -61,7 +61,7 @@ export function Suites() {
             </Card>
           ))}
 
-          <LoadPanel scenarios={scenarios.map((s) => ({ id: s.id, name: s.name }))} targets={targets.map((t) => t.name)} />
+          <LoadPanel scenarios={scenarios.map((s) => ({ id: s.id, name: s.name, protocol: s.protocol }))} targets={targets.map((t) => ({ name: t.name, protocol: t.protocol }))} />
         </div>
 
         <div className="min-h-0">
@@ -102,7 +102,9 @@ export function Suites() {
   )
 }
 
-function LoadPanel({ scenarios, targets }: { scenarios: { id: string; name: string }[]; targets: string[] }) {
+type Named = { name: string; protocol: string }
+
+function LoadPanel({ scenarios, targets }: { scenarios: (Named & { id: string })[]; targets: Named[] }) {
   const canRun = useCanRun()
   const [scenario, setScenario] = useState('')
   const [target, setTarget] = useState('')
@@ -112,7 +114,10 @@ function LoadPanel({ scenarios, targets }: { scenarios: { id: string; name: stri
   const [res, setRes] = useState<LoadResult>()
 
   const sc = scenario || scenarios[0]?.id
-  const tg = target || targets[0]
+  // Only the targets that speak the chosen scenario's protocol can run it.
+  const proto = scenarios.find((s) => s.id === sc)?.protocol
+  const usable = targets.filter((t) => t.protocol === proto).map((t) => t.name)
+  const tg = usable.includes(target) ? target : usable[0]
 
   async function run() {
     if (!sc || !tg) return
@@ -131,11 +136,11 @@ function LoadPanel({ scenarios, targets }: { scenarios: { id: string; name: stri
     <Card className="p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-medium text-text"><Gauge className="h-4 w-4 text-accent2" /> Load test</div>
       <div className="flex flex-wrap items-center gap-2">
-        <select value={sc} onChange={(e) => setScenario(e.target.value)} className={inputCls}>
+        <select value={sc} onChange={(e) => setScenario(e.target.value)} className={`${inputCls} max-w-[22rem]`} aria-label="Scenario">
           {scenarios.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <select value={tg} onChange={(e) => setTarget(e.target.value)} className={inputCls}>
-          {targets.map((t) => <option key={t} value={t}>{t}</option>)}
+        <select value={tg} onChange={(e) => setTarget(e.target.value)} className={inputCls} aria-label="Target">
+          {usable.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <label className="text-xs text-faint">N <input type="number" value={n} onChange={(e) => setN(+e.target.value)} className={`${inputCls} w-24`} /></label>
         <label className="text-xs text-faint">conc <input type="number" value={concurrency} onChange={(e) => setConcurrency(+e.target.value)} className={`${inputCls} w-20`} /></label>

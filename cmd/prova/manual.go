@@ -10,6 +10,7 @@ import (
 
 	"github.com/biodream-llc/prova/internal/engine"
 	"github.com/biodream-llc/prova/internal/manual"
+	"github.com/biodream-llc/prova/internal/sims"
 )
 
 // referenceChapters are generated from the running code — the shipped scenarios and suites, the targets, and every
@@ -17,7 +18,7 @@ import (
 func referenceChapters(eng *engine.Engine, fs *flag.FlagSet) []manual.Chapter {
 	var sc [][]string
 	for _, s := range eng.Scenarios() {
-		sc = append(sc, []string{"`" + s.ID + "`", s.Name, s.Protocol, s.Expect})
+		sc = append(sc, []string{"`" + s.ID + "`", s.Name, s.Protocol + " " + s.MessageKind(), s.Expect})
 	}
 	var su [][]string
 	for _, s := range eng.Suites() {
@@ -74,7 +75,7 @@ func referenceChapters(eng *engine.Engine, fs *flag.FlagSet) []manual.Chapter {
 	return []manual.Chapter{
 		{Title: "Scenario Reference", Intro: "Every scenario shipped in this binary. Run one with " +
 			"`prova run --scenario ID --target TARGET` or from the Scenarios screen.\n\n" +
-			manual.Table([]string{"ID", "Name", "Protocol", "Expectation"}, sc)},
+			manual.Table([]string{"ID", "Name", "Message", "Expectation"}, sc)},
 		{Title: "Suite Reference", Intro: "Every suite shipped in this binary, with its default target.\n\n" +
 			manual.Table([]string{"ID", "Name", "Target", "What it covers"}, su)},
 		{Title: "Target Reference", Intro: "The simulated targets prova starts unless `-no-sim` is given. Their " +
@@ -117,8 +118,8 @@ func manualCLI(args []string) int {
 	}
 	eng := engine.New()
 	// The reference lists the simulated targets a server starts; register them without starting them.
-	for _, t := range simTargets {
-		eng.AddTarget(engine.Target{Name: t.name, Protocol: t.protocol, Note: t.note})
+	for _, t := range sims.Specs {
+		eng.AddTarget(engine.Target{Name: t.Name, Protocol: t.Protocol, Note: t.Note})
 	}
 	server := flag.NewFlagSet("prova", flag.ContinueOnError)
 	defineServerFlags(server)

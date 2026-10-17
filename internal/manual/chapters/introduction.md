@@ -22,6 +22,7 @@ That matters to the people who sign off on a release: a release manager, an audi
 
 Everything below is in the one binary. Each line names the chapter that covers it.
 
+- 66 shipped scenarios and eleven suites across credit transfers, returns, cancellations and status requests; card authorisations, purchases, reversals and network messages; and orders, cancels, replaces and status requests — [suites](#suites-load-and-replay).
 - Scenarios written in JavaScript or Lua, with standards-valid synthetic data — [scenarios](#scenarios-and-scripting).
 - ISO 20022 (pacs.008 / pacs.002), ISO 8583 (0100 / 0110) and FIX 4.4 with a real session layer — [protocols](#protocols).
 - MT103 ↔ pacs.008 transformation for the ISO 20022 migration — [protocols](#protocols).

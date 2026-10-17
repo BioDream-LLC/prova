@@ -1,21 +1,32 @@
-casebook prova-payments v1
-source "prova behavioural payment controls" dated 2026-10-15 by "BioDream LLC"
+casebook prova-payments v2
+source "prova behavioural payment, card and order controls" dated 2026-10-16 by "BioDream LLC"
 note "Second, independent verdict engine for prova. Written in quorum's casebook language and compiled by cbc, which validates every combination of readings before the framework is emitted. prova's Go casebook decides the same cases by a different route; the two are cross-checked on every run."
-note "Readings are booleans produced by prova's binding layer from the exchange: what was sent, what the tester seeded, what the host returned. Thresholds (amount vs balance, date order, currency equality) live in the binding, not here."
+note "Readings are booleans produced by prova's binding layer from the exchange: what was sent, what the tester seeded, what the host returned. Thresholds (amount vs balance or limit, date order, currency equality, identifier checksums) live in the binding, not here."
 
 # ─── what the exchange reports ──────────────────────────────────────────────
-observe host_accepted     "the host accepted the instruction"
-observe host_rejected     "the host rejected the instruction"
-observe no_decision       "the response carried no recognized decision"
-observe reason_given      "the rejection carried a reason code"
-observe reason_wrong      "the reason code is not the one the scenario requires"
-observe funds_reason      "the host blamed insufficient funds"
-observe over_balance      "the amount exceeds the seeded available balance"
-observe balance_unknown   "the available balance was not seeded"
-observe overdraft_unknown "the overdraft facility is unknown"
-observe ccy_mismatch      "the instruction is in a currency the account does not hold"
-observe back_valued       "the value date precedes the settlement date"
-observe duplicate         "the instruction was already processed"
+observe host_accepted      "the host accepted the instruction"
+observe host_rejected      "the host rejected the instruction"
+observe no_decision        "the response carried no recognized decision"
+observe reason_given       "the rejection carried a reason code"
+observe reason_wrong       "the reason code is not the one the scenario requires"
+observe funds_reason       "the host blamed insufficient funds"
+observe over_balance       "the amount exceeds the seeded available balance"
+observe balance_unknown    "the available balance was not seeded"
+observe overdraft_unknown  "the overdraft facility is unknown"
+observe ccy_mismatch       "the instruction is in a currency the account does not hold"
+observe back_valued        "the value date precedes the settlement date"
+observe duplicate          "the instruction was already processed"
+observe instruction_invalid "the instruction fails field validation"
+observe account_unavailable "the account or card cannot be used"
+observe over_limit         "the amount exceeds the seeded transaction limit"
+observe original_unknown   "the instruction refers to an original the host never processed"
+observe exceeds_original   "the amount exceeds the original transaction's amount"
+observe already_final      "the original is final and can no longer be cancelled"
+observe cancellable        "the original is still pending and can be cancelled"
+observe status_mismatch    "the reported status is not the original's known status"
+observe service_closed     "the market or service is closed"
+observe instrument_unknown "the instrument is not one the venue lists"
+observe position_short     "the sell quantity exceeds the seeded position"
 
 # A response cannot both accept and reject.
 exclusive host_accepted host_rejected
@@ -29,6 +40,17 @@ claim malformed             "the response is not a recognized status"          n
 claim accepted_wrong_ccy    "host accepted a cross-currency instruction with no FX agreed" needs ccy_mismatch host_accepted
 claim accepted_back_valued  "host accepted a back-valued instruction"          needs back_valued host_accepted
 claim accepted_duplicate    "host processed a duplicate instruction"           needs duplicate host_accepted
+claim accepted_invalid      "host accepted an instruction that fails field validation" needs instruction_invalid host_accepted
+claim accepted_unavailable  "host accepted an instruction on an account or card that cannot be used" needs account_unavailable host_accepted
+claim accepted_over_limit   "host accepted an amount over the transaction limit" needs over_limit host_accepted
+claim accepted_no_original  "host accepted an instruction whose original it never processed" needs original_unknown host_accepted
+claim accepted_over_original "host accepted more than the original transaction's amount" needs exceeds_original host_accepted
+claim cancelled_final       "host cancelled an original that was already final" needs already_final host_accepted
+claim refused_cancellable   "host refused to cancel an original that was still pending" needs cancellable host_rejected
+claim wrong_status          "host reported a status other than the original's"  needs status_mismatch
+claim accepted_when_closed  "host accepted an order while the market was closed" needs service_closed host_accepted
+claim accepted_unknown_instrument "host accepted an order for an instrument it does not list" needs instrument_unknown host_accepted
+claim accepted_short        "host accepted a sale larger than the position"     needs position_short host_accepted
 
 # A funds rejection is only wrong when the account could cover the payment.
 over_balance    rebuts rejected_covered
@@ -53,5 +75,5 @@ overdraft_unconfirmed rebuts    overdraft
 
 # ─── the verdict ────────────────────────────────────────────────────────────
 action pass idle
-action fail safe when any accepted_over_balance wrong_reason rejected_covered rejected_no_reason malformed accepted_wrong_ccy accepted_back_valued accepted_duplicate maybe_short
+action fail safe when any accepted_over_balance wrong_reason rejected_covered rejected_no_reason malformed accepted_wrong_ccy accepted_back_valued accepted_duplicate accepted_invalid accepted_unavailable accepted_over_limit accepted_no_original accepted_over_original cancelled_final refused_cancellable wrong_status accepted_when_closed accepted_unknown_instrument accepted_short maybe_short
 prefer fail over pass

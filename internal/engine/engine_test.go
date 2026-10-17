@@ -2,10 +2,12 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/biodream-llc/prova/internal/iso20022"
+	"github.com/biodream-llc/prova/internal/sims"
 	"github.com/biodream-llc/prova/internal/verdict"
 )
 
@@ -80,8 +82,8 @@ func TestRunSuite(t *testing.T) {
 	if res.Outcome != verdict.Pass {
 		t.Fatalf("regression suite against a compliant host should pass, got %s (%+v)", res.Outcome, res)
 	}
-	if len(res.Runs) != 3 || res.Pass != 3 {
-		t.Fatalf("expected 3 passing runs, got %+v", res)
+	if len(res.Runs) != 5 || res.Pass != 5 {
+		t.Fatalf("expected 5 passing runs, got %+v", res)
 	}
 }
 
@@ -145,5 +147,74 @@ func TestRunLoad(t *testing.T) {
 	// Load runs must not pollute the stored history.
 	if len(eng.Runs()) != 0 {
 		t.Fatalf("load runs should not be stored, found %d", len(eng.Runs()))
+	}
+}
+
+// TestEveryShippedScenario drives every shipped scenario at the compliant and the defective simulated
+// target of its protocol. Against the compliant target each must pass (the unseeded-balance cases are
+// Indeterminate, by design); wherever the compliant target refused, the defective one — which accepts
+// everything — must not pass. On every run the two verdict engines must agree.
+func TestEveryShippedScenario(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eng := New()
+	targets, err := sims.Start(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tg := range targets {
+		eng.AddTarget(Target{Name: tg.Name, Protocol: tg.Protocol, Addr: tg.Addr})
+	}
+	scs := eng.Scenarios()
+	if len(scs) < 60 {
+		t.Fatalf("only %d shipped scenarios", len(scs))
+	}
+	seen := map[string]bool{}
+	for _, sc := range scs {
+		if seen[sc.ID] {
+			t.Fatalf("duplicate scenario id %s", sc.ID)
+		}
+		seen[sc.ID] = true
+		good, err := eng.Run(ctx, sc.ID, sims.Compliant(sc.Protocol))
+		if err != nil {
+			t.Fatalf("%s: %v", sc.ID, err)
+		}
+		want := verdict.Pass
+		if strings.HasSuffix(sc.ID, "-unknown-balance") {
+			want = verdict.Indeterminate
+		}
+		if good.Outcome != want {
+			t.Errorf("%s@compliant: %s, want %s (response %v, chain %v)", sc.ID, good.Outcome, want, good.Messages[1].Fields, good.Result.Chain)
+		}
+		bad, err := eng.Run(ctx, sc.ID, sims.Defective(sc.Protocol))
+		if err != nil {
+			t.Fatalf("%s: %v", sc.ID, err)
+		}
+		if good.Messages[1].Fields["decision"] == "rejected" && bad.Outcome == verdict.Pass {
+			t.Errorf("%s@defective: passed, but the compliant host refused it (defective response %v)", sc.ID, bad.Messages[1].Fields)
+		}
+		for _, r := range []Run{good, bad} {
+			if cc := r.Result.CrossCheck; cc == nil || !cc.Agrees {
+				t.Errorf("%s@%s: the engines disagree (%+v)", sc.ID, r.Target, cc)
+			}
+		}
+	}
+	for _, su := range builtinSuites() {
+		for _, id := range su.Scenarios {
+			if !seen[id] {
+				t.Errorf("suite %s names unknown scenario %s", su.ID, id)
+			}
+		}
+		res, err := eng.RunSuite(ctx, su.ID, su.Target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := verdict.Pass
+		if su.ID == "certification-cbpr" {
+			want = verdict.Indeterminate
+		}
+		if res.Outcome != want {
+			t.Errorf("suite %s: %s, want %s", su.ID, res.Outcome, want)
+		}
 	}
 }

@@ -62,16 +62,34 @@ type amt struct {
 	Val string `xml:",chardata"`
 }
 
+// acct is an account identification: an IBAN when one is given, else a proprietary identifier.
 type acct struct {
-	Othr string `xml:"Id>Othr>Id"`
+	IBAN string `xml:"Id>IBAN,omitempty"`
+	Othr string `xml:"Id>Othr>Id,omitempty"`
+}
+
+func account(iban, other string) acct {
+	if iban != "" {
+		return acct{IBAN: iban}
+	}
+	return acct{Othr: other}
+}
+
+func (a acct) id() string {
+	if a.IBAN != "" {
+		return a.IBAN
+	}
+	return a.Othr
 }
 
 type agent struct {
 	BICFI string `xml:"FinInstnId>BICFI"`
 }
 
-// Request is the normalized input a scenario fills to produce a pacs.008.
+// Request is the normalized input a scenario fills to produce an ISO 20022 instruction. Kind selects
+// the message: pacs.008 (the default), pacs.009, pacs.004, camt.056 or pacs.028.
 type Request struct {
+	Kind       string
 	MsgId      string
 	EndToEndId string
 	Amount     string // decimal string, e.g. "150.00"
@@ -81,6 +99,12 @@ type Request struct {
 	CreditAcct string
 	DebtorBIC  string
 	CreditBIC  string
+	DebtorIBAN string
+	CreditIBAN string
+	// OrgnlEndToEndId is the original a return, cancellation or status request refers to.
+	OrgnlEndToEndId string
+	// Reason is the return (pacs.004) or cancellation (camt.056) reason code.
+	Reason string
 }
 
 // FromRecord builds a Request from a flat string record (the adapter.Record form).
@@ -92,20 +116,43 @@ func FromRecord(r map[string]string) Request {
 		return dflt
 	}
 	return Request{
+		Kind:       get("Message", KindPacs008),
 		MsgId:      get("MsgId", "MSG-"+time.Now().UTC().Format("150405.000")),
 		EndToEndId: get("EndToEndId", "E2E-1"),
-		Amount:     get("Amount", "0.00"),
+		Amount:     get("Amount", ""),
 		Currency:   get("Currency", "EUR"),
 		ValueDate:  get("ValueDate", ""),
 		DebtorAcct: get("DebtorAcct", "ACC-DBTR-1"),
 		CreditAcct: get("CreditAcct", "ACC-CDTR-1"),
 		DebtorBIC:  get("DebtorBIC", "BANKDEFFXXX"),
 		CreditBIC:  get("CreditBIC", "BANKFRPPXXX"),
+		DebtorIBAN: get("DebtorIBAN", ""),
+		CreditIBAN: get("CreditIBAN", ""),
+
+		OrgnlEndToEndId: get("OrgnlEndToEndId", ""),
+		Reason:          get("Reason", ""),
 	}
 }
 
-// Encode renders a pacs.008.001.08 document for the request.
+// Encode renders the request as the ISO 20022 message its Kind names.
 func Encode(req Request) ([]byte, error) {
+	switch req.Kind {
+	case "", KindPacs008:
+		return encode008(req)
+	case KindPacs009:
+		return encode009(req)
+	case KindPacs004:
+		return encode004(req)
+	case KindCamt056:
+		return encode056(req)
+	case KindPacs028:
+		return encode028(req)
+	}
+	return nil, fmt.Errorf("iso20022: no encoder for %q", req.Kind)
+}
+
+// encode008 renders a pacs.008.001.08 document for the request.
+func encode008(req Request) ([]byte, error) {
 	d := doc008{
 		NS: nsPacs008,
 		Body: cdtTrf{
@@ -119,35 +166,59 @@ func Encode(req Request) ([]byte, error) {
 				PmtId:    pmtId{InstrId: req.MsgId, EndToEndId: req.EndToEndId, TxId: req.EndToEndId},
 				Amt:      amt{Ccy: req.Currency, Val: req.Amount},
 				SttlmDt:  req.ValueDate,
-				DbtrAcct: acct{Othr: req.DebtorAcct},
+				DbtrAcct: account(req.DebtorIBAN, req.DebtorAcct),
 				DbtrAgt:  agent{BICFI: req.DebtorBIC},
 				CdtrAgt:  agent{BICFI: req.CreditBIC},
-				CdtrAcct: acct{Othr: req.CreditAcct},
+				CdtrAcct: account(req.CreditIBAN, req.CreditAcct),
 			},
 		},
 	}
+	return marshal(d, KindPacs008)
+}
+
+func marshal(d any, kind string) ([]byte, error) {
 	body, err := xml.MarshalIndent(d, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("iso20022: encode pacs.008: %w", err)
+		return nil, fmt.Errorf("iso20022: encode %s: %w", kind, err)
 	}
 	return append([]byte(xml.Header), body...), nil
 }
 
-// ParseRequest decodes a pacs.008 back into a Request (used by the simulated host).
+// ParseRequest decodes any instruction prova sends back into a Request (used by the simulated host).
 func ParseRequest(raw []byte) (Request, error) {
+	switch k := Kind(raw); k {
+	case KindPacs008:
+		return parse008(raw)
+	case KindPacs009:
+		return parse009(raw)
+	case KindPacs004:
+		return parse004(raw)
+	case KindCamt056:
+		return parse056(raw)
+	case KindPacs028:
+		return parse028(raw)
+	default:
+		return Request{}, fmt.Errorf("iso20022: unsupported message %q", k)
+	}
+}
+
+func parse008(raw []byte) (Request, error) {
 	var d doc008
 	if err := xml.Unmarshal(raw, &d); err != nil {
 		return Request{}, fmt.Errorf("iso20022: parse pacs.008: %w", err)
 	}
 	t := d.Body.Tx
 	return Request{
+		Kind:       KindPacs008,
 		MsgId:      d.Body.GrpHdr.MsgId,
 		EndToEndId: t.PmtId.EndToEndId,
 		Amount:     strings.TrimSpace(t.Amt.Val),
 		Currency:   t.Amt.Ccy,
 		ValueDate:  strings.TrimSpace(t.SttlmDt),
-		DebtorAcct: t.DbtrAcct.Othr,
-		CreditAcct: t.CdtrAcct.Othr,
+		DebtorAcct: t.DbtrAcct.id(),
+		CreditAcct: t.CdtrAcct.id(),
+		DebtorIBAN: t.DbtrAcct.IBAN,
+		CreditIBAN: t.CdtrAcct.IBAN,
 		DebtorBIC:  t.DbtrAgt.BICFI,
 		CreditBIC:  t.CdtrAgt.BICFI,
 	}, nil
@@ -181,16 +252,21 @@ type rsnInf struct {
 	Code string `xml:"Rsn>Cd"`
 }
 
-// Status is the normalized response a scenario and the casebook read.
+// Status is the normalized response a scenario and the casebook read: a pacs.002 payment status
+// report, or (Kind camt.029) the resolution of a cancellation request.
 type Status struct {
+	Kind            string // pacs.002 (default) | camt.029
 	MsgId           string
 	OrgnlEndToEndId string
-	TxSts           string // ACSP (accepted) | RJCT (rejected)
+	TxSts           string // pacs.002: ACSP, ACSC, PDNG, RJCT ...; camt.029: CNCL (cancelled) | RJCR (refused)
 	ReasonCode      string // e.g. AM04 insufficient funds; empty when accepted
 }
 
-// EncodeStatus renders a pacs.002.001.10 (used by the simulated host).
+// EncodeStatus renders the response (used by the simulated host).
 func EncodeStatus(s Status) ([]byte, error) {
+	if s.Kind == KindCamt029 {
+		return encode029(s)
+	}
 	b := stsRpt{
 		GrpHdr: grpHdr002{MsgId: s.MsgId, CreDtTm: time.Now().UTC().Format(time.RFC3339)},
 		TxSts:  txSts{OrgnlEndToEndId: s.OrgnlEndToEndId, Sts: s.TxSts},
@@ -198,21 +274,20 @@ func EncodeStatus(s Status) ([]byte, error) {
 	if s.ReasonCode != "" {
 		b.TxSts.Rsn = &rsnInf{Code: s.ReasonCode}
 	}
-	d := doc002{NS: nsPacs002, Body: b}
-	body, err := xml.MarshalIndent(d, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("iso20022: encode pacs.002: %w", err)
-	}
-	return append([]byte(xml.Header), body...), nil
+	return marshal(doc002{NS: nsPacs002, Body: b}, KindPacs002)
 }
 
-// DecodeStatus decodes a pacs.002 response.
+// DecodeStatus decodes a pacs.002 or camt.029 response.
 func DecodeStatus(raw []byte) (Status, error) {
+	if Kind(raw) == KindCamt029 {
+		return decode029(raw)
+	}
 	var d doc002
 	if err := xml.Unmarshal(raw, &d); err != nil {
 		return Status{}, fmt.Errorf("iso20022: parse pacs.002: %w", err)
 	}
 	s := Status{
+		Kind:            KindPacs002,
 		MsgId:           d.Body.GrpHdr.MsgId,
 		OrgnlEndToEndId: d.Body.TxSts.OrgnlEndToEndId,
 		TxSts:           d.Body.TxSts.Sts,
@@ -231,10 +306,18 @@ func (s Status) Fields() map[string]string {
 		"OrgnlEndToEndId": s.OrgnlEndToEndId,
 		"TxSts":           s.TxSts,
 	}
-	if s.TxSts == "ACSP" {
-		f["decision"] = "accepted"
-	} else {
+	switch s.TxSts {
+	case "RJCT", "RJCR":
 		f["decision"] = "rejected"
+	case "":
+		// no recognized status: the structural-validity rule reports it
+	default:
+		f["decision"] = "accepted"
+		f["reportedStatus"] = s.TxSts // what a status report says of the original
+	}
+	if s.Kind == KindCamt029 {
+		f["Conf"] = s.TxSts
+		delete(f, "TxSts")
 	}
 	if s.ReasonCode != "" {
 		f["RjctRsn"] = s.ReasonCode

@@ -21,6 +21,7 @@ type Scenario struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Protocol    string            `json:"protocol"`
+	Message     string            `json:"message,omitempty"` // the message sent: pacs.008, 0400, F ...; empty is the protocol's default
 	Description string            `json:"description"`
 	Request     map[string]string `json:"request"`
 	Context     map[string]string `json:"context"`
@@ -258,7 +259,7 @@ func (e *Engine) execOnce(ctx context.Context, sc Scenario, targetName string) (
 	}
 	defer conn.Close()
 
-	msg, err := conn.Encode(adapter.Template{Name: sc.Protocol}, sc.Request)
+	msg, err := conn.Encode(adapter.Template{Name: sc.MessageKind()}, sc.Request)
 	if err != nil {
 		return Run{}, err
 	}
@@ -276,12 +277,13 @@ func (e *Engine) execOnce(ctx context.Context, sc Scenario, targetName string) (
 	// Independently certify the framework — via the prova-proof companion if attached, else in-process.
 	res.Certificate = proof.Verify(ctx, res.Framework, "pass")
 
-	outKind, inKind := wireKinds(sc.Protocol)
+	outKind := messageName(sc.Protocol, sc.MessageKind())
+	inKind := responseName(sc.Protocol, dec.Fields)
 	messages := []Message{
 		{
 			Dir:     "out",
 			Kind:    outKind,
-			Summary: outKind + " " + sc.Request["Amount"] + " " + sc.Request["Currency"],
+			Summary: requestSummary(outKind, sc.Request),
 			Fields:  sc.Request,
 			Raw:     string(msg),
 		},
@@ -327,142 +329,84 @@ func (e *Engine) store(run *Run) error {
 	return nil
 }
 
-func wireKinds(protocol string) (string, string) {
+// MessageKind is the message the scenario sends: its Message, or the protocol's default.
+func (sc Scenario) MessageKind() string {
+	if sc.Message != "" {
+		return sc.Message
+	}
+	switch sc.Protocol {
+	case "iso8583":
+		return "0100"
+	case "fix":
+		return "D"
+	}
+	return "pacs.008"
+}
+
+// fixNames are the FIX messages prova sends and receives, by MsgType.
+var fixNames = map[string]string{
+	"D": "NewOrderSingle(D)", "F": "OrderCancelRequest(F)", "G": "OrderCancelReplaceRequest(G)",
+	"H": "OrderStatusRequest(H)", "8": "ExecutionReport(8)", "9": "OrderCancelReject(9)", "3": "Reject(3)",
+}
+
+func messageName(protocol, kind string) string {
+	if protocol == "fix" {
+		if n, ok := fixNames[kind]; ok {
+			return n
+		}
+	}
+	return kind
+}
+
+func responseName(protocol string, f map[string]string) string {
 	switch protocol {
 	case "iso8583":
-		return "0100", "0110"
+		return f["MTI"]
 	case "fix":
-		return "NewOrderSingle(D)", "ExecutionReport(8)"
-	default:
-		return "pacs.008", "pacs.002"
+		return messageName("fix", f["35"])
 	}
+	if _, ok := f["Conf"]; ok {
+		return "camt.029"
+	}
+	return "pacs.002"
+}
+
+func requestSummary(kind string, r map[string]string) string {
+	s := kind
+	if a := r["Amount"]; a != "" {
+		s += " " + a + " " + r["Currency"]
+	}
+	for _, k := range []string{"OrgnlEndToEndId", "OriginalSTAN", "OrigClOrdID"} {
+		if v := r[k]; v != "" {
+			s += " re " + v
+		}
+	}
+	return s
 }
 
 func responseSummary(protocol string, f map[string]string) string {
 	switch protocol {
 	case "iso8583":
-		return "0110 DE39=" + f["DE39"]
+		return f["MTI"] + " DE39=" + f["DE39"]
 	case "fix":
-		if f["decision"] == "rejected" {
+		switch {
+		case f["35"] == "9":
+			return "OrderCancelReject CxlRejReason=" + f["102"]
+		case f["decision"] == "rejected":
 			return "ExecReport Rejected / OrdRejReason=" + f["rejectReason"]
+		case f["150"] == "I":
+			return "ExecReport status OrdStatus=" + f["39"]
 		}
-		return "ExecReport OrdStatus=" + f["39"]
+		return "ExecReport ExecType=" + f["150"] + " OrdStatus=" + f["39"]
 	default:
-		s := "pacs.002 " + f["TxSts"]
-		if r := f["RjctRsn"]; r != "" {
+		kind, sts := "pacs.002 ", f["TxSts"]
+		if c, ok := f["Conf"]; ok {
+			kind, sts = "camt.029 ", c
+		}
+		s := kind + sts
+		if r := f["rejectReason"]; r != "" {
 			s += " / " + r
 		}
 		return s
-	}
-}
-
-// builtinScenarios are the shipped scenarios across protocols.
-func builtinScenarios() []Scenario {
-	mx := func(amt, e2e, acct string) map[string]string {
-		return map[string]string{
-			"MsgId": "MSG-" + e2e, "EndToEndId": e2e, "Amount": amt, "Currency": "EUR",
-			"DebtorAcct": acct, "CreditAcct": "ACC-FR-9", "DebtorBIC": "BANKDEFFXXX", "CreditBIC": "BANKFRPPXXX",
-		}
-	}
-	mxCcy := func(amt, ccy, e2e, acct string) map[string]string {
-		m := mx(amt, e2e, acct)
-		m["Currency"] = ccy
-		return m
-	}
-	mxDated := func(amt, e2e, acct, valueDate string) map[string]string {
-		m := mx(amt, e2e, acct)
-		m["ValueDate"] = valueDate
-		return m
-	}
-	card := func(amt, stan string) map[string]string {
-		return map[string]string{
-			"PAN": "4111111111111111", "ProcessingCode": "000000", "Amount": amt, "Currency": "EUR",
-			"STAN": stan, "Terminal": "TERM0001",
-		}
-	}
-	order := func(amt, qty, clord string) map[string]string {
-		return map[string]string{
-			"Account": "ACC1", "Symbol": "ACME", "Side": "buy", "OrderQty": qty, "Price": "10.00",
-			"Currency": "USD", "Amount": amt, "ClOrdID": clord,
-		}
-	}
-	return []Scenario{
-		{
-			ID: "pacs008-over-balance", Name: "pacs.008 — payment over available balance", Protocol: "iso20022",
-			Description: "Instruct 150.00 against an account seeded with 142.00. The host must reject with AM04.",
-			Request:     mx("150.00", "E2E-OVER", "ACC-EUR-1"),
-			Context:     map[string]string{"availableBalance": "142.00", "expectReason": "AM04"},
-			Expect:      "reject (AM04)",
-		},
-		{
-			ID: "pacs008-within-balance", Name: "pacs.008 — payment within balance", Protocol: "iso20022",
-			Description: "Instruct 90.00 against an account seeded with 142.00. The host must accept.",
-			Request:     mx("90.00", "E2E-OK", "ACC-EUR-1"),
-			Context:     map[string]string{"availableBalance": "142.00"},
-			Expect:      "accept (ACSP)",
-		},
-		{
-			ID: "pacs008-exact-balance", Name: "pacs.008 — payment equal to balance", Protocol: "iso20022",
-			Description: "Instruct exactly the available 142.00. The host must accept (boundary case).",
-			Request:     mx("142.00", "E2E-EDGE", "ACC-EUR-1"),
-			Context:     map[string]string{"availableBalance": "142.00"},
-			Expect:      "accept (ACSP)",
-		},
-		{
-			ID: "pacs008-unknown-balance", Name: "pacs.008 — balance not seeded", Protocol: "iso20022",
-			Description: "Instruct 150.00 without seeding the balance. prova must return Indeterminate, not guess.",
-			Request:     mx("150.00", "E2E-UNK", "ACC-EUR-1"),
-			Context:     map[string]string{},
-			Expect:      "indeterminate",
-		},
-		{
-			ID: "iso8583-over-limit", Name: "ISO 8583 0100 — authorisation over limit", Protocol: "iso8583",
-			Description: "Authorise 150.00 on a card seeded with 142.00. The switch must decline with DE39=51.",
-			Request:     card("150.00", "000101"),
-			Context:     map[string]string{"availableBalance": "142.00", "expectReason": "51"},
-			Expect:      "decline (DE39=51)",
-		},
-		{
-			ID: "iso8583-within-limit", Name: "ISO 8583 0100 — authorisation within limit", Protocol: "iso8583",
-			Description: "Authorise 90.00 on a card seeded with 142.00. The switch must approve (DE39=00).",
-			Request:     card("90.00", "000102"),
-			Context:     map[string]string{"availableBalance": "142.00"},
-			Expect:      "approve (DE39=00)",
-		},
-		{
-			ID: "fix-over-limit", Name: "FIX D — order over buying power", Protocol: "fix",
-			Description: "Send a 15 x 10.00 (150.00) order on an account with 142.00 buying power. The venue must reject with OrdRejReason=3.",
-			Request:     order("150.00", "15", "ORD-OVER"),
-			Context:     map[string]string{"availableBalance": "142.00", "expectReason": "3"},
-			Expect:      "reject (OrdRejReason=3)",
-		},
-		{
-			ID: "fix-within-limit", Name: "FIX D — order within buying power", Protocol: "fix",
-			Description: "Send a 9 x 10.00 (90.00) order on an account with 142.00 buying power. The venue must fill (OrdStatus=2).",
-			Request:     order("90.00", "9", "ORD-OK"),
-			Context:     map[string]string{"availableBalance": "142.00"},
-			Expect:      "fill (OrdStatus=2)",
-		},
-		{
-			ID: "pacs008-currency-mismatch", Name: "pacs.008 — wrong-currency instruction", Protocol: "iso20022",
-			Description: "Instruct 90.00 USD against a EUR account. With no FX agreed, the host must reject with AM03 (unsupported currency).",
-			Request:     mxCcy("90.00", "USD", "E2E-CCY", "ACC-EUR-1"),
-			Context:     map[string]string{"availableBalance": "142.00", "accountCurrency": "EUR", "expectReason": "AM03"},
-			Expect:      "reject (AM03)",
-		},
-		{
-			ID: "pacs008-duplicate", Name: "pacs.008 — duplicate instruction", Protocol: "iso20022",
-			Description: "Resubmit an EndToEndId the host already processed. It must reject (AM05), not pay twice.",
-			Request:     mx("90.00", "E2E-DUP", "ACC-EUR-1"),
-			Context:     map[string]string{"availableBalance": "142.00", "duplicate": "true", "expectReason": "AM05"},
-			Expect:      "reject (AM05)",
-		},
-		{
-			ID: "pacs008-back-valued", Name: "pacs.008 — back-valued instruction", Protocol: "iso20022",
-			Description: "Instruct with a settlement value date in the past. The host must reject it (DT01) rather than back-value.",
-			Request:     mxDated("90.00", "E2E-BVD", "ACC-EUR-1", "2020-01-01"),
-			Context:     map[string]string{"availableBalance": "142.00", "valueDate": "2020-01-01", "settlementDate": "2026-10-15", "expectReason": "DT01"},
-			Expect:      "reject (DT01)",
-		},
 	}
 }

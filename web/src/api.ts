@@ -10,6 +10,7 @@ export interface Scenario {
   id: string
   name: string
   protocol: string
+  message?: string
   description: string
   request: Record<string, string>
   context: Record<string, string>

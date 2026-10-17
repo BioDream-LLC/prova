@@ -24,11 +24,10 @@ import (
 
 	"github.com/biodream-llc/prova/internal/authweb"
 	"github.com/biodream-llc/prova/internal/engine"
-	"github.com/biodream-llc/prova/internal/fix"
 	"github.com/biodream-llc/prova/internal/iso20022"
-	"github.com/biodream-llc/prova/internal/iso8583"
 	"github.com/biodream-llc/prova/internal/mt"
 	"github.com/biodream-llc/prova/internal/script"
+	"github.com/biodream-llc/prova/internal/sims"
 	"github.com/biodream-llc/prova/internal/store"
 	"github.com/biodream-llc/prova/internal/web"
 )
@@ -322,67 +321,15 @@ func defineServerFlags(fs *flag.FlagSet) *serverOptions {
 	}
 }
 
-// simTargets are the built-in simulated targets: their names, protocols and behaviour.
-var simTargets = []struct{ name, protocol, note string }{
-	{"cbpr-uat", "iso20022", "compliant reference host"},
-	{"switch-sim", "iso20022", "accept-all (known defect)"},
-	{"card-switch", "iso8583", "compliant auth switch"},
-	{"fix-venue", "fix", "compliant trading venue"},
-	{"fix-venue-bug", "fix", "fills over buying power (known defect)"},
-}
-
-func simTarget(name, addr string) engine.Target {
-	for _, t := range simTargets {
-		if t.name == name {
-			return engine.Target{Name: t.name, Protocol: t.protocol, Addr: addr, Note: t.note}
-		}
-	}
-	panic("prova: unknown simulated target " + name)
-}
-
-// startSims launches the built-in simulated ISO 20022 hosts and registers them as targets, so prova
-// is useful the moment it starts with no external system. cbpr-uat is a compliant reference host;
-// switch-sim carries a deliberate accept-all defect so prova can be seen catching it.
+// startSims launches the built-in simulated targets and registers them, so prova is useful the moment it
+// starts with no external system: a compliant and a defective target for each protocol.
 func startSims(ctx context.Context, eng *engine.Engine, seedHistory bool) {
-	ledger := func() map[string]int64 { return map[string]int64{"ACC-EUR-1": 14200} }
-
-	compliant := &iso20022.Sim{Ledger: ledger(), Mode: ""}
-	compliant.MarkSeen("E2E-DUP") // the duplicate-instruction scenario resubmits this id
-	buggy := &iso20022.Sim{Ledger: ledger(), Mode: "accept-all"}
-
-	if addr, err := compliant.Serve(ctx, "127.0.0.1:0"); err == nil {
-		eng.AddTarget(simTarget("cbpr-uat", addr))
-	} else {
-		log.Printf("prova: sim cbpr-uat: %v", err)
+	targets, err := sims.Start(ctx)
+	if err != nil {
+		log.Printf("prova: %v", err)
 	}
-	if addr, err := buggy.Serve(ctx, "127.0.0.1:0"); err == nil {
-		eng.AddTarget(simTarget("switch-sim", addr))
-	} else {
-		log.Printf("prova: sim switch-sim: %v", err)
-	}
-
-	// An ISO 8583 authorisation switch (compliant), seeded by PAN.
-	card := &iso8583.Sim{Ledger: map[string]int64{"4111111111111111": 14200}, Mode: ""}
-	if addr, err := card.Serve(ctx, "127.0.0.1:0"); err == nil {
-		eng.AddTarget(simTarget("card-switch", addr))
-	} else {
-		log.Printf("prova: sim card-switch: %v", err)
-	}
-
-	// A FIX trading venue (compliant), seeded by account buying power ($142.00 = 14200 minor units).
-	venue := &fix.Sim{Buying: map[string]int64{"ACC1": 14200}, Mode: ""}
-	if addr, err := venue.Serve(ctx, "127.0.0.1:0"); err == nil {
-		eng.AddTarget(simTarget("fix-venue", addr))
-	} else {
-		log.Printf("prova: sim fix-venue: %v", err)
-	}
-
-	// A FIX venue with a planted defect: it fills every order, including those over buying power.
-	venueBug := &fix.Sim{Buying: map[string]int64{"ACC1": 14200}, Mode: "approve-all"}
-	if addr, err := venueBug.Serve(ctx, "127.0.0.1:0"); err == nil {
-		eng.AddTarget(simTarget("fix-venue-bug", addr))
-	} else {
-		log.Printf("prova: sim fix-venue-bug: %v", err)
+	for _, t := range targets {
+		eng.AddTarget(engine.Target{Name: t.Name, Protocol: t.Protocol, Addr: t.Addr, Note: t.Note})
 	}
 
 	if !seedHistory {
@@ -411,6 +358,14 @@ var seedRuns = []struct{ scenario, target string }{
 	{"pacs008-currency-mismatch", "cbpr-uat"},
 	{"pacs008-duplicate", "cbpr-uat"},
 	{"pacs008-back-valued", "cbpr-uat"},
+	{"pacs008-invalid-bic", "cbpr-uat"},
+	{"pacs004-return-unknown", "switch-sim"},
+	{"camt056-cancel-pending", "cbpr-uat"},
+	{"pacs028-status-pending", "switch-sim"},
+	{"iso8583-expired-card", "card-switch"},
+	{"iso8583-reversal-unknown", "card-switch-bug"},
+	{"fix-cancel-filled", "fix-venue"},
+	{"fix-replace-over", "fix-venue-bug"},
 }
 
 // demoRuns runs one of the seed scenarios every interval, so a public demonstration shows live verdicts.

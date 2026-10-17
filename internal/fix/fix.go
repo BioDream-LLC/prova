@@ -51,6 +51,9 @@ const (
 	TagEncryptMeth  = 98
 	TagHeartBtInt   = 108
 	TagTestReqID    = 112
+	TagOrigClOrdID  = 41
+	TagCxlRejReason = 102
+	TagCxlRejTo     = 434
 )
 
 // MsgType values.
@@ -61,6 +64,10 @@ const (
 	MsgReject          = "3"
 	MsgNewOrderSingle  = "D"
 	MsgExecutionReport = "8"
+	MsgCancelRequest   = "F"
+	MsgReplaceRequest  = "G"
+	MsgStatusRequest   = "H"
+	MsgCancelReject    = "9"
 )
 
 // field is a single tag/value pair; a FIX message is an ordered list of them.
@@ -133,15 +140,18 @@ func parse(raw []byte) (map[int]string, error) {
 	return m, nil
 }
 
-// Request is the normalized order a scenario fills to produce a NewOrderSingle.
+// Request is the normalized order a scenario fills. MsgType selects the message: D (NewOrderSingle,
+// the default), F (OrderCancelRequest), G (OrderCancelReplaceRequest) or H (OrderStatusRequest).
 type Request struct {
-	ClOrdID  string
-	Account  string
-	Symbol   string
-	Side     string // 1 buy, 2 sell
-	OrderQty string
-	Price    string
-	Currency string
+	MsgType     string
+	OrigClOrdID string // the order a cancel, replace or status request refers to
+	ClOrdID     string
+	Account     string
+	Symbol      string
+	Side        string // 1 buy, 2 sell
+	OrderQty    string
+	Price       string
+	Currency    string
 }
 
 // FromRecord builds a Request from a flat string record, applying defaults.
@@ -153,13 +163,29 @@ func FromRecord(r map[string]string) Request {
 		return dflt
 	}
 	return Request{
-		ClOrdID:  get("ClOrdID", "ORD-1"),
-		Account:  get("Account", "ACC1"),
-		Symbol:   get("Symbol", "ACME"),
-		Side:     side(get("Side", "buy")),
-		OrderQty: get("OrderQty", "0"),
-		Price:    get("Price", "0.00"),
-		Currency: get("Currency", "USD"),
+		MsgType:     msgType(get("Message", MsgNewOrderSingle)),
+		OrigClOrdID: get("OrigClOrdID", ""),
+		ClOrdID:     get("ClOrdID", "ORD-1"),
+		Account:     get("Account", "ACC1"),
+		Symbol:      get("Symbol", "ACME"),
+		Side:        side(get("Side", "buy")),
+		OrderQty:    get("OrderQty", "0"),
+		Price:       get("Price", "0.00"),
+		Currency:    get("Currency", "USD"),
+	}
+}
+
+// msgType accepts a FIX MsgType value or its message name.
+func msgType(s string) string {
+	switch strings.ToLower(s) {
+	case "f", "ordercancelrequest":
+		return MsgCancelRequest
+	case "g", "ordercancelreplacerequest":
+		return MsgReplaceRequest
+	case "h", "orderstatusrequest":
+		return MsgStatusRequest
+	default:
+		return MsgNewOrderSingle
 	}
 }
 
@@ -202,6 +228,75 @@ func EncodeOrder(seq int, sender, target, now string, req Request) []byte {
 		{TagPrice, req.Price},
 		{TagCurrency, req.Currency},
 		{TagTimeInForce, "0"}, // day
+	})
+}
+
+// EncodeRequest renders the message the request's MsgType names.
+func EncodeRequest(seq int, sender, target, now string, req Request) []byte {
+	switch req.MsgType {
+	case MsgCancelRequest:
+		return build(MsgCancelRequest, seq, sender, target, now, []field{
+			{TagOrigClOrdID, req.OrigClOrdID},
+			{TagClOrdID, req.ClOrdID},
+			{TagAccount, req.Account},
+			{TagSymbol, req.Symbol},
+			{TagSide, req.Side},
+			{TagTransactTime, now},
+			{TagOrderQty, req.OrderQty},
+		})
+	case MsgReplaceRequest:
+		return build(MsgReplaceRequest, seq, sender, target, now, []field{
+			{TagOrigClOrdID, req.OrigClOrdID},
+			{TagClOrdID, req.ClOrdID},
+			{TagAccount, req.Account},
+			{TagSymbol, req.Symbol},
+			{TagSide, req.Side},
+			{TagTransactTime, now},
+			{TagOrderQty, req.OrderQty},
+			{TagOrdType, "2"},
+			{TagPrice, req.Price},
+			{TagCurrency, req.Currency},
+		})
+	case MsgStatusRequest:
+		return build(MsgStatusRequest, seq, sender, target, now, []field{
+			{TagOrderID, "NONE"},
+			{TagClOrdID, req.OrigClOrdID},
+			{TagSymbol, req.Symbol},
+			{TagSide, req.Side},
+		})
+	}
+	return EncodeOrder(seq, sender, target, now, req)
+}
+
+// ExecReport renders an ExecutionReport (8) with the given ExecType and OrdStatus: a cancellation
+// (4/4), a replacement (5/0) or a status report (I/<status>).
+func ExecReport(seq int, sender, target, now string, order map[int]string, execID, execType, ordStatus string) []byte {
+	return build(MsgExecutionReport, seq, sender, target, now, []field{
+		{TagOrderID, "V-" + execID},
+		{TagClOrdID, order[TagClOrdID]},
+		{TagOrigClOrdID, order[TagOrigClOrdID]},
+		{TagExecID, execID},
+		{TagExecType, execType},
+		{TagOrdStatus, ordStatus},
+		{TagSymbol, order[TagSymbol]},
+		{TagSide, order[TagSide]},
+		{TagLeavesQty, "0"},
+		{TagCumQty, "0"},
+		{TagAvgPx, "0"},
+	})
+}
+
+// CancelReject renders an OrderCancelReject (9): the venue refuses a cancel (434=1) or a replace
+// (434=2) with a CxlRejReason (102).
+func CancelReject(seq int, sender, target, now string, req map[int]string, responseTo, reason, text string) []byte {
+	return build(MsgCancelReject, seq, sender, target, now, []field{
+		{TagOrderID, "NONE"},
+		{TagClOrdID, req[TagClOrdID]},
+		{TagOrigClOrdID, req[TagOrigClOrdID]},
+		{TagOrdStatus, "8"},
+		{TagCxlRejTo, responseTo},
+		{TagCxlRejReason, reason},
+		{TagText, text},
 	})
 }
 
@@ -249,6 +344,7 @@ type Status struct {
 	OrdStatus    string
 	ExecType     string
 	OrdRejReason string
+	CxlRejReason string
 	Text         string
 }
 
@@ -264,6 +360,7 @@ func DecodeResponse(raw []byte) (Status, error) {
 		OrdStatus:    m[TagOrdStatus],
 		ExecType:     m[TagExecType],
 		OrdRejReason: m[TagOrdRejReason],
+		CxlRejReason: m[TagCxlRejReason],
 		Text:         m[TagText],
 	}, nil
 }
@@ -278,10 +375,14 @@ func (s Status) Fields() map[string]string {
 		"39":  s.OrdStatus,
 		"150": s.ExecType,
 	}
-	rejected := s.MsgType == MsgReject || s.OrdStatus == "8" || s.ExecType == "8"
+	rejected := s.MsgType == MsgReject || s.MsgType == MsgCancelReject || s.OrdStatus == "8" || s.ExecType == "8"
 	if rejected {
 		f["decision"] = "rejected"
 		reason := s.OrdRejReason
+		if s.MsgType == MsgCancelReject {
+			reason = s.CxlRejReason
+			f["102"] = s.CxlRejReason
+		}
 		if reason == "" {
 			reason = "REJECT"
 		}
@@ -291,6 +392,9 @@ func (s Status) Fields() map[string]string {
 		}
 	} else {
 		f["decision"] = "accepted"
+		if s.ExecType == "I" {
+			f["reportedStatus"] = s.OrdStatus // an order status report states the order's status
+		}
 	}
 	return f
 }

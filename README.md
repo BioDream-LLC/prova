@@ -11,8 +11,8 @@ behaved as it must.** A well-formed approval of a payment the account cannot cov
 names the rule it breaks and cites the evidence, and an independent SAT-backed check and a second rules engine
 confirm the verdict. It is not an AI explanation; nothing in prova guesses.
 
-**One 23 MB program. 25 MB of memory at rest.** The web console, the reference manual, the database and five
-simulated targets are built in. Copy it, run it, open the browser.
+**One 23 MB program. 25 MB of memory at rest.** The web console, the reference manual, the database, 66
+scenarios and six simulated targets are built in. Copy it, run it, open the browser.
 
 [![License](https://img.shields.io/badge/license-PolyForm%20Small%20Business%201.0.0-6366f1.svg)](LICENSE.md) [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg?logo=go&logoColor=white)](https://go.dev) [![Version](https://img.shields.io/badge/version-v0.1.0-orange.svg)](#build) [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#build) [![Protocols](https://img.shields.io/badge/protocols-ISO%2020022%20%7C%20ISO%208583%20%7C%20FIX%204.4-22d3ee.svg)](#everything-it-does)
 
@@ -63,21 +63,21 @@ defects, so the first ten minutes show prova catching them.
 ## Everything it does
 
 **Protocols**
-- **ISO 20022** — pacs.008 out, pacs.002 in, over a length-prefixed session; reason codes AM04, AM03, AM05, DT01 and others.
-- **ISO 8583** — 0100/0110 authorisation with a real bitmap packager; DE39 response codes.
-- **FIX 4.4** — tag=value codec with BodyLength and CheckSum, the session layer (Logon, Heartbeat, TestRequest, sequence numbers), NewOrderSingle and ExecutionReport.
+- **ISO 20022** — pacs.008 and pacs.009 credit transfers, pacs.004 returns, camt.056 cancellations (answered by camt.029) and pacs.028 status requests, with pacs.002 status reports, over a length-prefixed session; IBAN or proprietary accounts; the ISO external reason codes (AM01–AM12, AC01, AC04, AC06, RC01, DT01, NOOR, ARDT …).
+- **ISO 8583** — 0100 authorisations, 0200 purchases, 0400 reversals and 0800 network management, with a real bitmap packager including the secondary bitmap; DE39 response codes.
+- **FIX 4.4** — tag=value codec with BodyLength and CheckSum, the session layer (Logon, Heartbeat, TestRequest, sequence numbers), NewOrderSingle, OrderCancelRequest, OrderCancelReplaceRequest and OrderStatusRequest, answered by ExecutionReport and OrderCancelReject.
 - **MT103 ↔ pacs.008** transformation for the ISO 20022 migration — convert, drive the converted message, prove the result.
 
 **Verdicts**
-- A **casebook** of protocol-agnostic controls: structural validity, funds sufficiency, currency consistency, value date, idempotency.
+- A **casebook** of sixteen protocol-agnostic controls: structural and field validity (ISO 4217 currencies and decimals, BIC format, IBAN and Luhn check digits), funds, currency, value date, duplicates, account and card state, transaction limits, references to originals, cancellation state, status reports, market hours, listed instruments, positions and the prescribed reason code.
 - **Grounded argumentation semantics**: every verdict is a graph you can read and a cited chain of steps.
-- A **second engine**: the same controls written in quorum's casebook language and compiled by its `cbc` compiler, which checks all 4,096 combinations of readings before emitting anything. The two engines agree on every one of 3,456 tested combinations.
+- A **second engine**: the same controls written in quorum's casebook language and compiled by its `cbc` compiler, which checks all 8,388,608 combinations of its 23 readings before emitting anything. The two engines agree on all 114,048 generated test cases and on every shipped scenario.
 - A **certificate** for every verdict from the C++ `prova-proof` companion (SAT-backed with CaDiCaL), or the in-process checker.
 - **Indeterminate** is an answer, with the evidence that would settle it.
 
 **Testing**
 - Scenarios in **JavaScript or Lua**, sandboxed, with standards-valid synthetic data (Luhn PANs, IBANs, BICs) and reproducible seeds.
-- **Suites**: ISO 20022, ISO 8583 and FIX regression packs, a CBPR+ certification pack, an ISO 20022 controls pack.
+- **66 scenarios** (33 ISO 20022, 17 ISO 8583, 16 FIX) and **eleven suites**: regression, controls and field validation; returns, cancellations and status; card controls; reversals and network; order controls and the order lifecycle; and a CBPR+ readiness pack.
 - **Load tests** with throughput and p50/p95/p99 — and every request still judged.
 - **Record and replay**: capture traffic as a cassette, re-prove it offline after the rules change.
 - **CI**: `prova run` writes JUnit and JSON and fails the build on a failed proof.
@@ -98,7 +98,7 @@ defects, so the first ten minutes show prova catching them.
 </tr>
 <tr>
 <td width="50%"><img src="docs/assets/screens/reports.png" alt="The Reports screen: verdicts by day and pass rate and latency by target and protocol, from the database."><br><sub><b>Reports.</b> Every verdict from the database, by day, target, protocol, scenario and person, with CSV export.</sub></td>
-<td width="50%"><img src="docs/assets/screens/suites.png" alt="The Suites screen: regression and certification packs and a CBPR+ certification run with three passes and one indeterminate."><br><sub><b>Suites.</b> Regression and certification packs, and load tests, each scenario linked to its proof.</sub></td>
+<td width="50%"><img src="docs/assets/screens/suites.png" alt="The Suites screen: regression, controls and readiness packs, and a suite run with each scenario linked to its proof."><br><sub><b>Suites.</b> Eleven packs across the three protocols, and load tests, each scenario linked to its proof.</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/assets/screens/sign-in.png" alt="The sign-in screen with the demonstration account offered."><br><sub><b>Sign-in.</b> Local accounts, OpenID Connect and SAML; here, the public demonstration's account.</sub></td>
@@ -112,7 +112,7 @@ defects, so the first ten minutes show prova catching them.
 ./prova
 ```
 
-That serves `https://localhost:8443`. The first start prints the `admin` password once, and runs a dozen scenarios at
+That serves `https://localhost:8443`. The first start prints the `admin` password once, and runs twenty scenarios at
 the built-in simulators so every screen has real verdicts on it. Then:
 
 ```
@@ -144,27 +144,30 @@ second engine's verdict; download the CSV. How it is run is in [`deploy/demo/`](
 
 ## How it compares
 
-The finance protocol-testing market — jPOS and its client simulator, Paragon FASTest, Greenline VeriFIX, FIXSIM,
-X9Ware, Trace Financial, AskISO — between them offer the thirteen capabilities below. prova has all thirteen, and adds
-the one none of them has: a verdict that is a machine-checked proof.
+The established tools — jPOS and its client simulator, Paragon FASTest, Greenline VeriFIX, FIXSIM, X9Ware, Trace
+Financial, AskISO — between them cover thirteen kinds of capability. prova has something in each, and adds the one
+none of them has: a verdict that is a machine-checked proof. **Breadth is a different matter, and is stated plainly
+here.**
 
-| Capability | prova |
-|---|---|
-| Simulated counterparties | ISO 20022 host, ISO 8583 switch, FIX venue — compliant and with planted defects |
-| Multi-protocol | ISO 20022, ISO 8583, FIX 4.4 behind one adapter interface |
-| Field-level validation | the structural-validity control and the message inspector |
-| Regression suites | five shipped packs; any scenario set |
-| Certification packs | the CBPR+ certification pack |
-| Load testing | throughput and percentiles, every request judged |
-| Negative testing | controls that prove a *rejection* was correct, with the right reason |
-| CI/CD | `prova run`, JUnit and JSON, non-zero exit on failure |
-| Synthetic data | Luhn PANs, IBANs, BICs, amounts, ids; seeded and reproducible |
-| Auditable evidence | every verdict a cited proof with a certificate, stored and exportable |
-| MT ↔ MX | MT103 ↔ pacs.008, then drive and prove the migrated message |
-| FIX session testing | Logon, heartbeats, TestRequest, sequence numbers, BodyLength and CheckSum |
-| Capture and replay | JSONL cassettes, re-proved offline |
+| Capability | prova today | Where the established tools go further |
+|---|---|---|
+| Simulated counterparties | an ISO 20022 host, ISO 8583 switch and FIX venue, each compliant and defective | scheme-specific hosts and dialects |
+| Message coverage | 5 ISO 20022 messages, 4 ISO 8583 MTIs, 4 FIX request types | hundreds of MX messages; Visa, Mastercard and other ISO 8583 dialects; FIX 4.2 and 5.0 SP2 |
+| Field validation | ISO 4217, decimals, BIC, IBAN and Luhn checks | full XSD and market usage-guideline validation (CBPR+, SEPA, FedNow) |
+| Scenario library | 66 scenarios, 11 suites | libraries of hundreds to thousands of cases |
+| Certification packs | prova's own CBPR+ readiness pack | official card-scheme certification test cases |
+| Card security | — | PIN, MAC, EMV chip data and HSM integration |
+| Load testing | throughput and percentiles, every request judged | larger-scale replay of production traffic |
+| Negative testing | controls that prove a *rejection* was right, with the right reason | |
+| CI/CD | `prova run`, JUnit and JSON, non-zero exit on failure | |
+| Synthetic data | Luhn PANs, IBANs, BICs, amounts, ids; seeded and reproducible | |
+| Auditable evidence | every verdict a cited proof with a certificate, stored and exportable | |
+| MT ↔ MX | MT103 ↔ pacs.008, then drive and prove the migrated message | more MT and MX message pairs |
+| FIX session testing | Logon, heartbeats, TestRequest, sequence numbers, BodyLength and CheckSum | resend and gap-fill recovery |
+| Capture and replay | JSONL cassettes, re-proved offline | |
 
-The comparison is drawn from the vendors' public material; see [docs/comparison.md](docs/comparison.md).
+The right-hand column is drawn from the vendors' public material and is the roadmap; see
+[docs/comparison.md](docs/comparison.md).
 
 ## Security
 
@@ -254,9 +257,9 @@ prova is not affiliated with or endorsed by ISO, the FIX Trading Community, SWIF
 <details>
 <summary><b>Keywords</b></summary>
 
-<sub><b>Payments:</b> ISO 20022 testing · pacs.008 · pacs.002 · CBPR+ · SWIFT MX · MT103 to pacs.008 · MT to MX migration · payment host testing · payment simulator · reason codes AM04 AM05 DT01</sub><br><br>
-<sub><b>Cards:</b> ISO 8583 testing · card switch simulator · authorisation testing · 0100 0110 · DE39 · issuer host testing</sub><br><br>
-<sub><b>Trading:</b> FIX protocol testing · FIX 4.4 · FIX simulator · FIX session testing · NewOrderSingle · ExecutionReport · OMS EMS testing</sub><br><br>
+<sub><b>Payments:</b> ISO 20022 testing · pacs.008 · pacs.009 · pacs.004 · camt.056 · camt.029 · pacs.028 · pacs.002 · IBAN validation · CBPR+ · SWIFT MX · MT103 to pacs.008 · MT to MX migration · payment host testing · payment simulator · reason codes AM04 AM05 DT01</sub><br><br>
+<sub><b>Cards:</b> ISO 8583 testing · card switch simulator · authorisation testing · 0100 0200 0400 0800 · reversals · DE39 · issuer host testing</sub><br><br>
+<sub><b>Trading:</b> FIX protocol testing · FIX 4.4 · FIX simulator · FIX session testing · NewOrderSingle · OrderCancelRequest · OrderCancelReplaceRequest · ExecutionReport · OMS EMS testing</sub><br><br>
 <sub><b>Proof:</b> formal verification · argumentation · grounded semantics · SAT solver · CaDiCaL · explainable verdicts · audit evidence · PCI DSS · SOX · regression testing · load testing · single binary · Go · OpenID Connect · SAML</sub>
 </details>
 
