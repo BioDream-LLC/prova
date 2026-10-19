@@ -4,7 +4,7 @@ BIN     := bin/prova
 PROOFBIN := bin/prova-proof
 PKG     := ./cmd/prova
 # The released version, written here so a build from a source archive reports the same version.
-VERSION ?= v0.1.0
+VERSION ?= v0.2.0
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 .PHONY: all build run test vet fmt check clean web manual proof release casebook

@@ -14,7 +14,7 @@ confirm the verdict. It is not an AI explanation; nothing in prova guesses.
 **One 23 MB program. 25 MB of memory at rest.** The web console, the reference manual, the database, 66
 scenarios and six simulated targets are built in. Copy it, run it, open the browser.
 
-[![License](https://img.shields.io/badge/license-PolyForm%20Small%20Business%201.0.0-6366f1.svg)](LICENSE.md) [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg?logo=go&logoColor=white)](https://go.dev) [![Version](https://img.shields.io/badge/version-v0.1.0-orange.svg)](#build) [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#build) [![Protocols](https://img.shields.io/badge/protocols-ISO%2020022%20%7C%20ISO%208583%20%7C%20FIX%204.4-22d3ee.svg)](#everything-it-does)
+[![License](https://img.shields.io/badge/license-PolyForm%20Small%20Business%201.0.0-6366f1.svg)](LICENSE.md) [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg?logo=go&logoColor=white)](https://go.dev) [![Version](https://img.shields.io/badge/version-v0.2.0-orange.svg)](#build) [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#build) [![Protocols](https://img.shields.io/badge/protocols-ISO%2020022%20%7C%20ISO%208583%20%7C%20FIX%204.4%20%2B%205.0-22d3ee.svg)](#everything-it-does)
 
 <a href="https://prova.perfuse.health:9443"><img src="docs/assets/buttons/try.svg" alt="Try prova now: the live demonstration, no install" width="300"></a>
 
@@ -22,7 +22,7 @@ scenarios and six simulated targets are built in. Copy it, run it, open the brow
 
 <a href="https://prova.perfuse.health:9443/manual"><img src="docs/assets/buttons/manual.svg" alt="Read the prova reference manual" width="240"></a>&nbsp;<a href="#build"><img src="docs/assets/buttons/source.svg" alt="Build prova from source" width="240"></a>
 
-<sub><b>Download v0.1.0</b> for [Linux](https://github.com/BioDream-LLC/prova/releases/download/v0.1.0/prova_v0.1.0_linux_amd64.tar.gz) · [macOS, Apple Silicon](https://github.com/BioDream-LLC/prova/releases/download/v0.1.0/prova_v0.1.0_darwin_arm64.tar.gz) · [Windows](https://github.com/BioDream-LLC/prova/releases/download/v0.1.0/prova_v0.1.0_windows_amd64.tar.gz) — one file, nothing to install</sub>
+<sub><b>Download v0.2.0</b> for [Linux](https://github.com/BioDream-LLC/prova/releases/download/v0.2.0/prova_v0.2.0_linux_amd64.tar.gz) · [macOS, Apple Silicon](https://github.com/BioDream-LLC/prova/releases/download/v0.2.0/prova_v0.2.0_darwin_arm64.tar.gz) · [Windows](https://github.com/BioDream-LLC/prova/releases/download/v0.2.0/prova_v0.2.0_windows_amd64.tar.gz) — one file, nothing to install</sub>
 
 [**Why prova**](#why-prova) · [**What it does**](#everything-it-does) · [**What it looks like**](#what-it-looks-like) ·
 [**Running it**](#running-it) · [**How it compares**](#how-it-compares) · [**Security**](#security) · [**FAQ**](#faq)
