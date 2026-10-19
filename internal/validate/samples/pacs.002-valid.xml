@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.002.001.10">
+  <FIToFIPmtStsRpt>
+    <GrpHdr>
+      <MsgId>RSP-0001</MsgId>
+      <CreDtTm>2026-10-18T09:32:00Z</CreDtTm>
+    </GrpHdr>
+    <TxInfAndSts>
+      <OrgnlEndToEndId>E2E-CBPR-0001</OrgnlEndToEndId>
+      <TxSts>ACSC</TxSts>
+    </TxInfAndSts>
+  </FIToFIPmtStsRpt>
+</Document>

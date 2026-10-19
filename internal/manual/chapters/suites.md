@@ -4,7 +4,7 @@
 
 A suite runs a set of scenarios as one batch against a target and aggregates the result. The aggregate is **fail** if any scenario failed, **indeterminate** if any was indeterminate and none failed, and **pass** otherwise. Each scenario's run is stored with its proof and linked to the suite execution, so a failed certification run can be reopened months later exactly as it was.
 
-prova ships eleven packs — regression, controls, field validation, and returns, cancellations and status for ISO 20022; regression, card controls, and reversals and network management for ISO 8583; regression, order controls and the order lifecycle for FIX; and a CBPR+ readiness pack across the ISO 20022 flows. They are listed in the [Suite Reference](#suite-reference). The CBPR+ readiness pack is prova's own, built from the controls above; it is not SWIFT's certification test set. Run one from the **Suites** screen, choosing another target if needed, or from CI:
+prova ships thirteen packs — regression, controls, field validation, and returns, cancellations and status for ISO 20022; regression, card controls, and reversals and network management for ISO 8583; regression, order controls and the order lifecycle for FIX; and a CBPR+ readiness pack across the ISO 20022 flows. They are listed in the [Suite Reference](#suite-reference). The CBPR+ readiness pack is prova's own, built from the controls above; it is not SWIFT's certification test set. Run one from the **Suites** screen, choosing another target if needed, or from CI:
 
 ```
 prova run --suite regression-iso20022 --junit results.xml

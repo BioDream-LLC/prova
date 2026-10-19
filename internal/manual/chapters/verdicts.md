@@ -17,7 +17,7 @@ The verdict is decided by the **casebook**: a set of behavioural rules, each enf
 | Rule | A correct target |
 |---|---|
 | structural validity | answers with a recognised status, and gives a reason with every rejection |
-| field validity | rejects an instruction that fails field validation: an unknown currency, an amount that is not positive or has too many decimals, a malformed BIC, an IBAN or card number that fails its check digits, a non-positive quantity or price (`AM11`, `AM01`, `AM12`, `RC01`, `AC01`, DE39 `14`, `13`, FIX `13`) |
+| field validity | rejects an instruction that fails field validation: an unknown currency, an amount that is not positive or has too many decimals, a malformed BIC, an IBAN or card number that fails its check digits, a non-positive quantity or price, a malformed PIN block, MAC or EMV chip data on a card transaction (`AM11`, `AM01`, `AM12`, `RC01`, `AC01`, DE39 `14`, `13`, `30`, FIX `13`) |
 | funds sufficiency | rejects a payment that exceeds available funds (`AM04`, DE39 `51`, a FIX reject), and does not refuse one the account can cover |
 | currency consistency | rejects an instruction in a currency the account does not hold, unless conversion is agreed (`AM03`) |
 | value date | rejects a back-valued instruction (`DT01`) |

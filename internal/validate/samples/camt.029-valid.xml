@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.029.001.09">
+  <RsltnOfInvstgtn>
+    <Assgnmt><Id>RES-1</Id><Assgnr><Agt><FinInstnId><BICFI>BANKFRPPXXX</BICFI></FinInstnId></Agt></Assgnr><Assgne><Agt><FinInstnId><BICFI>BANKDEFFXXX</BICFI></FinInstnId></Agt></Assgne><CreDtTm>2026-10-18T09:33:00Z</CreDtTm></Assgnmt>
+    <Sts><Conf>CNCL</Conf></Sts>
+  </RsltnOfInvstgtn>
+</Document>

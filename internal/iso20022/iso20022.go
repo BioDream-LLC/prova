@@ -147,6 +147,8 @@ func Encode(req Request) ([]byte, error) {
 		return encode056(req)
 	case KindPacs028:
 		return encode028(req)
+	case KindPain001:
+		return encode001(req)
 	}
 	return nil, fmt.Errorf("iso20022: no encoder for %q", req.Kind)
 }
@@ -197,6 +199,8 @@ func ParseRequest(raw []byte) (Request, error) {
 		return parse056(raw)
 	case KindPacs028:
 		return parse028(raw)
+	case KindPain001:
+		return parse001(raw)
 	default:
 		return Request{}, fmt.Errorf("iso20022: unsupported message %q", k)
 	}
@@ -267,6 +271,9 @@ func EncodeStatus(s Status) ([]byte, error) {
 	if s.Kind == KindCamt029 {
 		return encode029(s)
 	}
+	if s.Kind == KindPain002 {
+		return encode002pain(s)
+	}
 	b := stsRpt{
 		GrpHdr: grpHdr002{MsgId: s.MsgId, CreDtTm: time.Now().UTC().Format(time.RFC3339)},
 		TxSts:  txSts{OrgnlEndToEndId: s.OrgnlEndToEndId, Sts: s.TxSts},
@@ -279,8 +286,11 @@ func EncodeStatus(s Status) ([]byte, error) {
 
 // DecodeStatus decodes a pacs.002 or camt.029 response.
 func DecodeStatus(raw []byte) (Status, error) {
-	if Kind(raw) == KindCamt029 {
+	switch Kind(raw) {
+	case KindCamt029:
 		return decode029(raw)
+	case KindPain002:
+		return decode002pain(raw)
 	}
 	var d doc002
 	if err := xml.Unmarshal(raw, &d); err != nil {

@@ -79,8 +79,9 @@ func venue(mode string) *fix.Sim {
 		Mode:      mode,
 		Buying:    map[string]int64{"ACC1": 14200},
 		Positions: map[string]int64{"ACC1/ACME": 20},
-		Listed:    map[string]bool{"ACME": true, "GLOBX": true},
+		Listed:    map[string]bool{"ACME": true, "GLOBX": true, "PARTL": true},
 		Halted:    map[string]bool{"GLOBX": true},
+		Partial:   map[string]bool{"PARTL": true},
 		Orders: map[string]fix.Order{
 			"ORD-OPEN":   {Account: "ACC1", Symbol: "ACME", Status: "0"},
 			"ORD-FILLED": {Account: "ACC1", Symbol: "ACME", Status: "2"},

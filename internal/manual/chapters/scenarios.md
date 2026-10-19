@@ -21,7 +21,7 @@ On the **Scenarios** screen choose a scenario — filter by protocol or search �
 prova run --scenario pacs008-over-balance --target cbpr-uat
 ```
 
-prova ships 66 scenarios: 33 for ISO 20022, 17 for ISO 8583 and 16 for FIX. Every one is listed in the [Scenario Reference](#scenario-reference); each passes against the compliant simulated target of its protocol, and every one the compliant target refuses fails (or is indeterminate) against the defective one.
+prova ships 75 scenarios: 36 for ISO 20022, 22 for ISO 8583 and 17 for FIX. Every one is listed in the [Scenario Reference](#scenario-reference); each passes against the compliant simulated target of its protocol, and every one the compliant target refuses fails (or is indeterminate) against the defective one.
 
 ## Scripting
 
@@ -104,4 +104,4 @@ The casebook reads these context keys. A rule whose key is absent stays dormant 
 | `instrumentKnown` | `false` for an instrument the venue does not list | instrument listed |
 | `position`, `shortSellAllowed` | the quantity held, and `true` when short selling is permitted | position |
 
-Field validation needs no context: prova checks the request itself — the currency is an ISO 4217 code, the amount is positive with no more decimals than the currency allows, BICs are well formed, IBANs and card numbers pass their check digits, and order quantities and prices are positive.
+Field validation needs no context: prova checks the request itself — the currency is an ISO 4217 code, the amount is positive with no more decimals than the currency allows, BICs are well formed, IBANs and card numbers pass their check digits, order quantities and prices are positive, and a card-present transaction's PIN block, MAC and EMV chip data (with its 9F26 cryptogram) are well formed.

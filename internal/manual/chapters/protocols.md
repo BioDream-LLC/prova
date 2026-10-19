@@ -13,6 +13,7 @@ prova sends five ISO 20022 messages over a length-prefixed session, set by the s
 | **pacs.004** | payment return | pacs.002 |
 | **camt.056** | FI-to-FI payment cancellation request | camt.029 resolution of investigation |
 | **pacs.028** | FI-to-FI payment status request | pacs.002 stating the original's status |
+| **pain.001** | customer credit transfer initiation | pain.002 customer payment status report |
 
 | Request field | Carries |
 |---|---|
@@ -26,7 +27,7 @@ prova sends five ISO 20022 messages over a length-prefixed session, set by the s
 | `OrgnlEndToEndId` | the original a pacs.004, camt.056 or pacs.028 refers to |
 | `Reason` | the return or cancellation reason code |
 
-A pacs.002 status of `RJCT`, or a camt.029 of `RJCR`, is a canonical `rejected`, and its reason code (`AM04`, `AM03`, `AC04`, `RC01`, `NOOR` …) becomes `rejectReason`. Any other status is `accepted`, and is also recorded as `reportedStatus` — which is what the status-report rule compares with the original's known status.
+A customer initiation (pain.001) is answered by a pain.002 with the same status semantics. A pacs.002 status of `RJCT`, or a camt.029 of `RJCR`, is a canonical `rejected`, and its reason code (`AM04`, `AM03`, `AC04`, `RC01`, `NOOR` …) becomes `rejectReason`. Any other status is `accepted`, and is also recorded as `reportedStatus` — which is what the status-report rule compares with the original's known status.
 
 > Format validation and behaviour are different questions. With the CBPR+ coexistence period ending in November 2026, every bank is checking that its messages are well-formed. A well-formed acceptance of a payment the account cannot cover is still a defect, and that is the question prova answers.
 
@@ -52,14 +53,18 @@ prova packs and unpacks ISO 8583 with a real ASCII bitmap packager, including th
 | `Currency` | DE49, as its ISO 4217 numeric code |
 | `NetworkCode` | DE70 network management code (`001`, `002`, `301`) |
 | `OriginalSTAN` | the original's STAN, carried in DE90 original data elements |
+| `POSEntryMode` | DE22 how the card was read (051 chip, 071 contactless chip, 010 manual) |
+| `PINBlock` | DE52 ISO 9564 PIN block |
+| `ICCData` | DE55 EMV chip data, BER-TLV |
+| `MAC` | DE64 message authentication code |
 
-DE39 `00` is `accepted`; any other response code is `rejected`, with the code (`51` insufficient funds, `14` invalid card number, `54` expired card, `25` original not found …) as `rejectReason`.
+A chip-read authorisation must carry well-formed EMV data with an Application Cryptogram (9F26), a 16-hex PIN block and a 16- or 32-hex MAC; a malformed one is declined (DE39=30). DE39 `00` is `accepted`; any other response code is `rejected`, with the code (`51` insufficient funds, `14` invalid card number, `54` expired card, `25` original not found …) as `rejectReason`.
 
 ## FIX
 
 prova speaks **FIX 4.4** with a real `tag=value` codec, including the BodyLength (`9`) and CheckSum (`10`) computation, so a corrupt or truncated message is refused rather than misread.
 
-It runs the session layer: the Logon handshake, heartbeats, TestRequest and Heartbeat, and a sequence number per side (`34`). The scenario's `message` is the MsgType sent:
+It speaks FIX 4.4 and, over a FIXT.1.1 session, FIX 5.0 SP2 (the application version travels in DefaultApplVerID/ApplVerID). It runs the session layer: the Logon handshake, heartbeats, TestRequest and Heartbeat, a sequence number per side (`34`), and recovery — a ResendRequest is answered by a SequenceReset in gap-fill mode. The scenario's `message` is the MsgType sent:
 
 | MsgType | Message | Answered by |
 |---|---|---|
@@ -68,7 +73,7 @@ It runs the session layer: the Logon handshake, heartbeats, TestRequest and Hear
 | **G** | OrderCancelReplaceRequest | ExecutionReport `150=5`, or OrderCancelReject |
 | **H** | OrderStatusRequest | ExecutionReport `150=I` stating the order's status |
 
-Cancel, replace and status requests name their order in `OrigClOrdID`. A Reject (`35=3`), an OrderCancelReject, or an ExecutionReport with ExecType `150=8` or OrdStatus `39=8` is `rejected`, carrying its OrdRejReason (`103`) or CxlRejReason (`102`) as `rejectReason`. Any other ExecutionReport is `accepted`; a status report's `39` is recorded as `reportedStatus`.
+Cancel, replace and status requests name their order in `OrigClOrdID`. A Reject (`35=3`), an OrderCancelReject, or an ExecutionReport with ExecType `150=8` or OrdStatus `39=8` is `rejected`, carrying its OrdRejReason (`103`) or CxlRejReason (`102`) as `rejectReason`. Any other ExecutionReport is `accepted`; a partial fill (ExecType=1, OrdStatus=1) reports CumQty and LeavesQty, and a status report's `39` is recorded as `reportedStatus`.
 
 ## MT103 and pacs.008
 

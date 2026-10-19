@@ -29,31 +29,38 @@ const (
 	TagSendingTime  = 52
 	TagCheckSum     = 10
 
-	TagAccount      = 1
-	TagClOrdID      = 11
-	TagCumQty       = 14
-	TagCurrency     = 15
-	TagExecID       = 17
-	TagOrderQty     = 38
-	TagOrdStatus    = 39
-	TagOrdType      = 40
-	TagPrice        = 44
-	TagSide         = 54
-	TagSymbol       = 55
-	TagText         = 58
-	TagTimeInForce  = 59
-	TagTransactTime = 60
-	TagAvgPx        = 6
-	TagLeavesQty    = 151
-	TagOrderID      = 37
-	TagExecType     = 150
-	TagOrdRejReason = 103
-	TagEncryptMeth  = 98
-	TagHeartBtInt   = 108
-	TagTestReqID    = 112
-	TagOrigClOrdID  = 41
-	TagCxlRejReason = 102
-	TagCxlRejTo     = 434
+	TagAccount          = 1
+	TagClOrdID          = 11
+	TagCumQty           = 14
+	TagCurrency         = 15
+	TagExecID           = 17
+	TagOrderQty         = 38
+	TagOrdStatus        = 39
+	TagOrdType          = 40
+	TagPrice            = 44
+	TagSide             = 54
+	TagSymbol           = 55
+	TagText             = 58
+	TagTimeInForce      = 59
+	TagTransactTime     = 60
+	TagAvgPx            = 6
+	TagLeavesQty        = 151
+	TagOrderID          = 37
+	TagExecType         = 150
+	TagOrdRejReason     = 103
+	TagEncryptMeth      = 98
+	TagHeartBtInt       = 108
+	TagTestReqID        = 112
+	TagOrigClOrdID      = 41
+	TagCxlRejReason     = 102
+	TagCxlRejTo         = 434
+	TagLastQty          = 32
+	TagBeginSeqNo       = 7
+	TagEndSeqNo         = 16
+	TagNewSeqNo         = 36
+	TagGapFillFlag      = 123
+	TagDefaultApplVerID = 1137
+	TagApplVerID        = 1128
 )
 
 // MsgType values.
@@ -61,13 +68,24 @@ const (
 	MsgLogon           = "A"
 	MsgHeartbeat       = "0"
 	MsgTestRequest     = "1"
+	MsgResendRequest   = "2"
 	MsgReject          = "3"
+	MsgSequenceReset   = "4"
+	MsgLogout          = "5"
 	MsgNewOrderSingle  = "D"
 	MsgExecutionReport = "8"
 	MsgCancelRequest   = "F"
 	MsgReplaceRequest  = "G"
 	MsgStatusRequest   = "H"
 	MsgCancelReject    = "9"
+)
+
+// FIX session versions prova speaks. FIXT.1.1 is the transport for the FIX 5.0 application layer; the
+// application version (e.g. 9 == FIX 5.0 SP2) travels in DefaultApplVerID (1137) / ApplVerID (1128).
+const (
+	BeginString44  = "FIX.4.4"
+	BeginStringT11 = "FIXT.1.1"
+	ApplVer50SP2   = "9" // FIX 5.0 SP2
 )
 
 // field is a single tag/value pair; a FIX message is an ordered list of them.
@@ -80,6 +98,12 @@ type field struct {
 // and a trailer with a real CheckSum (10). BodyLength (9) counts every byte after its own SOH up to
 // and including the SOH before the CheckSum, exactly as the protocol requires.
 func build(msgType string, seq int, sender, target, sendingTime string, body []field) []byte {
+	return buildWith(beginString, msgType, seq, sender, target, sendingTime, body)
+}
+
+// buildWith is build with an explicit BeginString, so the codec can emit FIXT.1.1 (FIX 5.0) sessions
+// as well as FIX.4.4.
+func buildWith(bs, msgType string, seq int, sender, target, sendingTime string, body []field) []byte {
 	var sb strings.Builder
 	put := func(tag int, v string) { fmt.Fprintf(&sb, "%d=%s%s", tag, v, soh) }
 	put(TagMsgType, msgType)
@@ -91,7 +115,7 @@ func build(msgType string, seq int, sender, target, sendingTime string, body []f
 		put(f.tag, f.val)
 	}
 	bodyStr := sb.String()
-	full := fmt.Sprintf("8=%s%s9=%d%s%s", beginString, soh, len(bodyStr), soh, bodyStr)
+	full := fmt.Sprintf("8=%s%s9=%d%s%s", bs, soh, len(bodyStr), soh, bodyStr)
 	full += fmt.Sprintf("10=%03d%s", checksum(full), soh)
 	return []byte(full)
 }
@@ -203,6 +227,34 @@ func Logon(seq int, sender, target, now string) []byte {
 	return build(MsgLogon, seq, sender, target, now, []field{
 		{TagEncryptMeth, "0"},
 		{TagHeartBtInt, "30"},
+	})
+}
+
+// LogonV renders a Logon over an explicit session version. For a FIXT.1.1 (FIX 5.0) session it
+// carries the DefaultApplVerID (1137), e.g. "9" for FIX 5.0 SP2.
+func LogonV(bs, applVerID string, seq int, sender, target, now string) []byte {
+	body := []field{{TagEncryptMeth, "0"}, {TagHeartBtInt, "30"}}
+	if applVerID != "" {
+		body = append(body, field{TagDefaultApplVerID, applVerID})
+	}
+	return buildWith(bs, MsgLogon, seq, sender, target, now, body)
+}
+
+// ResendRequest renders a ResendRequest (2) asking the peer to resend sequence numbers begin..end
+// (end 0 means "to the end").
+func ResendRequest(bs string, seq int, sender, target, now string, begin, end int) []byte {
+	return buildWith(bs, MsgResendRequest, seq, sender, target, now, []field{
+		{TagBeginSeqNo, strconv.Itoa(begin)},
+		{TagEndSeqNo, strconv.Itoa(end)},
+	})
+}
+
+// SequenceResetGapFill renders a SequenceReset (4) in gap-fill mode (123=Y), the administrative reply
+// to a ResendRequest for messages that need not be replayed, advancing the peer to newSeq.
+func SequenceResetGapFill(bs string, seq int, sender, target, now string, newSeq int) []byte {
+	return buildWith(bs, MsgSequenceReset, seq, sender, target, now, []field{
+		{TagGapFillFlag, "Y"},
+		{TagNewSeqNo, strconv.Itoa(newSeq)},
 	})
 }
 
@@ -319,6 +371,31 @@ func ExecFill(seq int, sender, target, now string, order map[int]string, execID 
 	})
 }
 
+// ExecPartialFill renders an ExecutionReport (8) reporting a partial fill: ExecType=1, OrdStatus=1,
+// with a cumulative quantity below the order quantity and the remainder left working (LeavesQty).
+func ExecPartialFill(seq int, sender, target, now string, order map[int]string, execID string, cumQty int64) []byte {
+	ordQty, _ := strconv.ParseInt(order[TagOrderQty], 10, 64)
+	leaves := ordQty - cumQty
+	if leaves < 0 {
+		leaves = 0
+	}
+	return build(MsgExecutionReport, seq, sender, target, now, []field{
+		{TagOrderID, "V-" + execID},
+		{TagClOrdID, order[TagClOrdID]},
+		{TagExecID, execID},
+		{TagExecType, "1"},  // partial fill
+		{TagOrdStatus, "1"}, // partially filled
+		{TagSymbol, order[TagSymbol]},
+		{TagSide, order[TagSide]},
+		{TagOrderQty, order[TagOrderQty]},
+		{TagLastQty, strconv.FormatInt(cumQty, 10)},
+		{TagCumQty, strconv.FormatInt(cumQty, 10)},
+		{TagLeavesQty, strconv.FormatInt(leaves, 10)},
+		{TagAvgPx, order[TagPrice]},
+		{TagPrice, order[TagPrice]},
+	})
+}
+
 // ExecReject renders an ExecutionReport (8) reporting a rejected order with an OrdRejReason (103).
 func ExecReject(seq int, sender, target, now string, order map[int]string, execID, rejReason, text string) []byte {
 	return build(MsgExecutionReport, seq, sender, target, now, []field{
@@ -345,6 +422,8 @@ type Status struct {
 	ExecType     string
 	OrdRejReason string
 	CxlRejReason string
+	CumQty       string
+	LeavesQty    string
 	Text         string
 }
 
@@ -361,6 +440,8 @@ func DecodeResponse(raw []byte) (Status, error) {
 		ExecType:     m[TagExecType],
 		OrdRejReason: m[TagOrdRejReason],
 		CxlRejReason: m[TagCxlRejReason],
+		CumQty:       m[TagCumQty],
+		LeavesQty:    m[TagLeavesQty],
 		Text:         m[TagText],
 	}, nil
 }
@@ -394,6 +475,11 @@ func (s Status) Fields() map[string]string {
 		f["decision"] = "accepted"
 		if s.ExecType == "I" {
 			f["reportedStatus"] = s.OrdStatus // an order status report states the order's status
+		}
+		if s.ExecType == "1" { // partial fill
+			f["150"] = "1"
+			f["14"] = s.CumQty
+			f["151"] = s.LeavesQty
 		}
 	}
 	return f

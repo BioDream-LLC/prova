@@ -100,6 +100,8 @@ func (s *Sim) DecideMTI(mti string, req map[int]string) string {
 	switch {
 	case !luhn(pan):
 		return "14" // invalid card number
+	case !cardSecurityOK(req):
+		return "30" // format error: PIN block, MAC or EMV chip data is malformed or missing
 	case req[14] != "" && req[14] < pd[2:4]+pd[5:7]:
 		return "54" // expired card
 	case status == "lost":

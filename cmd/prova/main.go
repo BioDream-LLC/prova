@@ -29,6 +29,7 @@ import (
 	"github.com/biodream-llc/prova/internal/script"
 	"github.com/biodream-llc/prova/internal/sims"
 	"github.com/biodream-llc/prova/internal/store"
+	"github.com/biodream-llc/prova/internal/validate"
 	"github.com/biodream-llc/prova/internal/web"
 )
 
@@ -47,6 +48,11 @@ func main() {
 	// Subcommand: `prova manual` writes the reference manual as one HTML file.
 	if len(os.Args) > 1 && os.Args[1] == "manual" {
 		os.Exit(manualCLI(os.Args[2:]))
+	}
+
+	// Subcommand: `prova validate` checks an ISO 20022 message against the schema and a profile.
+	if len(os.Args) > 1 && os.Args[1] == "validate" {
+		os.Exit(validateCLI(os.Args[2:]))
 	}
 
 	o := defineServerFlags(flag.CommandLine)
@@ -246,6 +252,58 @@ func main() {
 		default:
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "direction must be mt2mx or mx2mt"})
 		}
+	})
+
+	mux.HandleFunc("GET /api/validate/examples", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, validate.Examples())
+	})
+	mux.HandleFunc("POST /api/validate", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Message string `json:"message"`
+			Profile string `json:"profile"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		rep, err := validate.Message([]byte(body.Message), body.Profile)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if r.URL.Query().Get("format") == "sarif" {
+			sb, err := rep.SARIF()
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			w.Header().Set("Content-Type", "application/sarif+json")
+			w.Header().Set("Content-Disposition", "attachment; filename=prova-findings.sarif")
+			_, _ = w.Write(sb)
+			return
+		}
+		activity(r, "validated a message", fmt.Sprintf("%s (%s): %d findings", orUnknown(rep.Kind), orUnknown(rep.Profile), len(rep.Findings)))
+		writeJSON(w, http.StatusOK, rep)
+	})
+
+	mux.HandleFunc("POST /api/counterparty", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Protocol string `json:"protocol"`
+			Message  string `json:"message"`
+			Decision string `json:"decision"` // accept | reject
+			Reason   string `json:"reason"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		raw, fields, err := counterpartyReply(body.Protocol, body.Message, body.Decision, body.Reason)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		activity(r, "composed a counterparty reply", fmt.Sprintf("%s %s %s", body.Protocol, body.Decision, body.Reason))
+		writeJSON(w, http.StatusOK, map[string]any{"raw": raw, "fields": fields})
 	})
 
 	ui, err := web.Handler()

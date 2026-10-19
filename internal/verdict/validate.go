@@ -59,7 +59,130 @@ func FieldProblems(req map[string]string) []string {
 			out = append(out, "price "+v+" is not a positive amount")
 		}
 	}
+	out = append(out, cardSecurityProblems(req)...)
 	return out
+}
+
+// cardSecurityProblems lists failures in the PIN block, MAC and EMV chip data of a card request: a
+// PIN block that is not 16 hex, a MAC that is not 16 or 32 hex, malformed BER-TLV chip data or chip
+// data missing its Application Cryptogram (9F26), and a chip entry carrying no EMV data at all.
+func cardSecurityProblems(req map[string]string) []string {
+	var out []string
+	if p := strings.TrimSpace(req["PINBlock"]); p != "" && !hexOfLen(p, 16) {
+		out = append(out, "PIN block is not a 16-hex ISO 9564 block")
+	}
+	if m := strings.TrimSpace(req["MAC"]); m != "" && !hexOfLen(m, 16) && !hexOfLen(m, 32) {
+		out = append(out, "MAC is not 16 or 32 hex characters")
+	}
+	entry := strings.TrimSpace(req["POSEntryMode"])
+	chip := strings.HasPrefix(entry, "05") || strings.HasPrefix(entry, "07")
+	icc := strings.TrimSpace(req["ICCData"])
+	switch {
+	case icc == "":
+		if chip {
+			out = append(out, "chip entry ("+entry+") carries no EMV data (DE55)")
+		}
+	default:
+		tags, ok := berTLVTags(icc)
+		if !ok {
+			out = append(out, "EMV chip data is not well-formed BER-TLV")
+		} else if !tags["9F26"] {
+			out = append(out, "EMV chip data carries no Application Cryptogram (tag 9F26)")
+		}
+	}
+	return out
+}
+
+// hexOfLen reports whether s is exactly n hex characters.
+func hexOfLen(s string, n int) bool {
+	if len(s) != n {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9' || c >= 'A' && c <= 'F' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// berTLVTags parses BER-TLV encoded as hex and returns the set of tags, or ok=false if malformed.
+// This is prova's Go-casebook implementation; the sim and the second engine carry their own.
+func berTLVTags(h string) (map[string]bool, bool) {
+	if len(h)%2 != 0 {
+		return nil, false
+	}
+	buf := make([]byte, len(h)/2)
+	for i := range buf {
+		var hi, lo int
+		if hi = hexVal(h[2*i]); hi < 0 {
+			return nil, false
+		}
+		if lo = hexVal(h[2*i+1]); lo < 0 {
+			return nil, false
+		}
+		buf[i] = byte(hi<<4 | lo)
+	}
+	tags := map[string]bool{}
+	for i := 0; i < len(buf); {
+		ts := i
+		b0 := buf[i]
+		i++
+		if b0&0x1f == 0x1f {
+			for i < len(buf) && buf[i]&0x80 != 0 {
+				i++
+			}
+			if i >= len(buf) {
+				return nil, false
+			}
+			i++
+		}
+		tag := strings.ToUpper(hexEncode(buf[ts:i]))
+		if i >= len(buf) {
+			return nil, false
+		}
+		n := int(buf[i])
+		i++
+		if n&0x80 != 0 {
+			k := n & 0x7f
+			if k == 0 || k > 2 || i+k > len(buf) {
+				return nil, false
+			}
+			n = 0
+			for ; k > 0; k-- {
+				n = n<<8 | int(buf[i])
+				i++
+			}
+		}
+		if i+n > len(buf) {
+			return nil, false
+		}
+		i += n
+		tags[tag] = true
+	}
+	return tags, true
+}
+
+func hexVal(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	}
+	return -1
+}
+
+func hexEncode(b []byte) string {
+	const d = "0123456789ABCDEF"
+	out := make([]byte, 0, len(b)*2)
+	for _, c := range b {
+		out = append(out, d[c>>4], d[c&0xf])
+	}
+	return string(out)
 }
 
 func amountProblems(a, ccy string) []string {

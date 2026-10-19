@@ -69,6 +69,9 @@ func (s *Sim) MarkSeen(e2e string) {
 // evaluate the host logic without a socket.
 func (s *Sim) Decide(req Request) Status {
 	resp := Status{Kind: KindPacs002, MsgId: "RSP-" + req.MsgId, OrgnlEndToEndId: req.EndToEndId}
+	if req.Kind == KindPain001 {
+		resp.Kind = KindPain002 // a customer initiation is answered by a customer payment status report
+	}
 	reject := func(code string) Status { resp.TxSts, resp.ReasonCode = "RJCT", code; return resp }
 	accept := func() Status { resp.TxSts = "ACSP"; return resp }
 

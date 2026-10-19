@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.009.001.08">
+  <FICdtTrf>
+    <GrpHdr><MsgId>FI-0001</MsgId><CreDtTm>2026-10-18T09:30:00Z</CreDtTm><NbOfTxs>1</NbOfTxs><SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf></GrpHdr>
+    <CdtTrfTxInf>
+      <PmtId><EndToEndId>FIE2E-1</EndToEndId><UETR>8a7c3b2e-1f4d-4a9b-8c2e-6f1a2b3c4d5e</UETR></PmtId>
+      <IntrBkSttlmAmt Ccy="USD">250000.00</IntrBkSttlmAmt>
+      <Dbtr><FinInstnId><BICFI>BANKDEFFXXX</BICFI></FinInstnId></Dbtr>
+      <DbtrAgt><FinInstnId><BICFI>BANKDEFFXXX</BICFI></FinInstnId></DbtrAgt>
+      <CdtrAgt><FinInstnId><BICFI>BANKFRPPXXX</BICFI></FinInstnId></CdtrAgt>
+      <Cdtr><FinInstnId><BICFI>BANKFRPPXXX</BICFI></FinInstnId></Cdtr>
+    </CdtTrfTxInf>
+  </FICdtTrf>
+</Document>

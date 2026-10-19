@@ -224,6 +224,10 @@ func TestFieldValidationAgrees(t *testing.T) {
 		{"PAN": "4111111111111111"}, {"PAN": "4111111111111112"}, {"PAN": "41111111111"}, {"PAN": "411111111111111a"},
 		{"OrderQty": "15"}, {"OrderQty": "0"}, {"OrderQty": "-3"}, {"OrderQty": "1.5"}, {"OrderQty": "+5"}, {"OrderQty": ""},
 		{"Price": "10.00"}, {"Price": "0"}, {"Price": "-1"}, {"Price": "x"},
+		{"PINBlock": "0412ABCDEF012345"}, {"PINBlock": "0412ABCDEF01234"}, {"PINBlock": "0412ABCDEF01234G"},
+		{"MAC": "A1B2C3D4E5F60718"}, {"MAC": "A1B2C3D4E5F60718A1B2C3D4E5F60718"}, {"MAC": "A1B2C3"}, {"MAC": "A1B2C3D4E5F6071X"},
+		{"ICCData": "9F2608A1B2C3D4E5F60718"}, {"ICCData": "9F270180"}, {"ICCData": "9F2608A1B2C3D4E5F607"}, {"ICCData": "ZZ"},
+		{"POSEntryMode": "051"}, {"POSEntryMode": "051", "ICCData": "9F2608A1B2C3D4E5F60718"}, {"POSEntryMode": "010"},
 	}
 	for _, r := range reqs {
 		goInvalid := len(verdict.FieldProblems(r)) > 0

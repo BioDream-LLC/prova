@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.028.001.03">
+  <FIToFIPmtStsReq>
+    <GrpHdr><MsgId>STS-0001</MsgId><CreDtTm>2026-10-18T09:30:00Z</CreDtTm></GrpHdr>
+    <TxInf><StsReqId>SR-1</StsReqId><OrgnlEndToEndId>E2E-ORIG-PENDING</OrgnlEndToEndId></TxInf>
+  </FIToFIPmtStsReq>
+</Document>

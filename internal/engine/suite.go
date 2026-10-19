@@ -276,14 +276,24 @@ func builtinSuites() []Suite {
 				"iso8583-duplicate", "iso8583-zero-amount", "iso8583-over-card-limit"},
 		},
 		{
+			ID: "security-iso8583", Name: "ISO 8583 card security", Target: "card-switch",
+			Description: "Chip, PIN and MAC checks a switch must make: a valid chip authorisation carrying an ARQC is approved; chip entry without EMV data, EMV data missing its cryptogram, a malformed PIN block and a malformed MAC are each declined (DE39=30).",
+			Scenarios:   []string{"iso8583-chip-valid", "iso8583-chip-no-emv", "iso8583-chip-no-arqc", "iso8583-bad-pin-block", "iso8583-bad-mac"},
+		},
+		{
+			ID: "initiation-iso20022", Name: "ISO 20022 payment initiation", Target: "cbpr-uat",
+			Description: "Customer-initiated credit transfers (pain.001 answered by pain.002): within balance accepted, over balance rejected (AM04), an unknown currency refused (AM11).",
+			Scenarios:   []string{"pain001-within-balance", "pain001-over-balance", "pain001-unknown-currency"},
+		},
+		{
 			ID: "reversals-iso8583", Name: "ISO 8583 reversals and network", Target: "card-switch",
 			Description: "0400 reversals of known, unknown (25) and over-reversed (13) originals, and the 0800 echo test.",
 			Scenarios:   []string{"iso8583-reversal-known", "iso8583-reversal-unknown", "iso8583-reversal-over-original", "iso8583-echo"},
 		},
 		{
 			ID: "regression-fix", Name: "FIX regression", Target: "fix-venue",
-			Description: "Core NewOrderSingle behaviours: an order over buying power rejected, one within it filled, the exact boundary.",
-			Scenarios:   []string{"fix-over-limit", "fix-within-limit", "fix-exact-limit"},
+			Description: "Core NewOrderSingle behaviours: an order over buying power rejected, one within it filled, the exact boundary, and a partial fill.",
+			Scenarios:   []string{"fix-over-limit", "fix-within-limit", "fix-exact-limit", "fix-partial-fill"},
 		},
 		{
 			ID: "controls-fix", Name: "FIX order controls", Target: "fix-venue",

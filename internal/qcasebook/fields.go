@@ -47,7 +47,109 @@ func invalidInstruction(r map[string]string) bool {
 	if v, ok := r["Price"]; ok && !positiveDecimal(strings.TrimSpace(v), 18) {
 		return true
 	}
-	return false
+	return cardInsecure(r)
+}
+
+// cardInsecure is the second engine's own card-security check (PIN block, MAC, EMV chip data),
+// written separately from prova's Go casebook. It scans the TLV with a hand-rolled cursor.
+func cardInsecure(r map[string]string) bool {
+	if p := strings.TrimSpace(r["PINBlock"]); p != "" && !hexLen(p, 16) {
+		return true
+	}
+	if m := strings.TrimSpace(r["MAC"]); m != "" && !hexLen(m, 16) && !hexLen(m, 32) {
+		return true
+	}
+	entry := strings.TrimSpace(r["POSEntryMode"])
+	chip := strings.HasPrefix(entry, "05") || strings.HasPrefix(entry, "07")
+	icc := strings.TrimSpace(r["ICCData"])
+	if icc == "" {
+		return chip
+	}
+	has9F26, ok := tlvHasARQC(icc)
+	return !ok || !has9F26
+}
+
+func hexLen(s string, n int) bool {
+	if len(s) != n {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if nib(s[i]) < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func nib(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	}
+	return -1
+}
+
+// tlvHasARQC reports whether the hex-encoded BER-TLV is well formed (ok) and carries tag 9F26.
+func tlvHasARQC(h string) (bool, bool) {
+	if len(h)%2 != 0 {
+		return false, false
+	}
+	n := len(h) / 2
+	at := func(i int) int { return nib(h[2*i])<<4 | nib(h[2*i+1]) }
+	bad := func(i int) bool { return nib(h[2*i]) < 0 || nib(h[2*i+1]) < 0 }
+	found := false
+	i := 0
+	for i < n {
+		if bad(i) {
+			return false, false
+		}
+		ts := i
+		if at(i)&0x1f == 0x1f {
+			i++
+			for i < n && !bad(i) && at(i)&0x80 != 0 {
+				i++
+			}
+			if i >= n || bad(i) {
+				return false, false
+			}
+		}
+		i++
+		var tag strings.Builder
+		for k := ts; k < i; k++ {
+			tag.WriteString(strings.ToUpper(h[2*k : 2*k+2]))
+		}
+		if i >= n || bad(i) {
+			return false, false
+		}
+		l := at(i)
+		i++
+		if l&0x80 != 0 {
+			k := l & 0x7f
+			if k == 0 || k > 2 || i+k > n {
+				return false, false
+			}
+			l = 0
+			for ; k > 0; k-- {
+				if bad(i) {
+					return false, false
+				}
+				l = l<<8 | at(i)
+				i++
+			}
+		}
+		if i+l > n {
+			return false, false
+		}
+		i += l
+		if tag.String() == "9F26" {
+			found = true
+		}
+	}
+	return found, true
 }
 
 // amountOK: a positive plain decimal with no more fraction digits than the currency's exponent (two

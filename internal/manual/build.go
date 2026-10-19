@@ -15,6 +15,7 @@ var order = []string{
 	"accounts",
 	"scenarios",
 	"protocols",
+	"validating",
 	"verdicts",
 	"suites",
 	"reports",

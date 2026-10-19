@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.056.001.08">
+  <FIToFIPmtCxlReq>
+    <Assgnmt>
+      <Id>CXL-0001</Id>
+      <Assgnr><Agt><FinInstnId><BICFI>BANKDEFFXXX</BICFI></FinInstnId></Agt></Assgnr>
+      <Assgne><Agt><FinInstnId><BICFI>BANKFRPPXXX</BICFI></FinInstnId></Agt></Assgne>
+      <CreDtTm>2026-10-18T09:31:00Z</CreDtTm>
+    </Assgnmt>
+    <Undrlyg>
+      <TxInf>
+        <CxlId>CXLID-1</CxlId>
+        <OrgnlEndToEndId>E2E-ORIG-PENDING</OrgnlEndToEndId>
+      </TxInf>
+    </Undrlyg>
+  </FIToFIPmtCxlReq>
+</Document>

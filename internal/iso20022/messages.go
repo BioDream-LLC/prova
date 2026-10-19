@@ -17,6 +17,8 @@ const (
 	KindPacs028 = "pacs.028" // FI-to-FI payment status request
 	KindPacs002 = "pacs.002" // FI-to-FI payment status report (response)
 	KindCamt029 = "camt.029" // resolution of investigation (response to camt.056)
+	KindPain001 = "pain.001" // customer credit transfer initiation
+	KindPain002 = "pain.002" // customer payment status report (response to pain.001)
 )
 
 const (
@@ -25,6 +27,8 @@ const (
 	nsCamt056 = "urn:iso:std:iso:20022:tech:xsd:camt.056.001.08"
 	nsPacs028 = "urn:iso:std:iso:20022:tech:xsd:pacs.028.001.03"
 	nsCamt029 = "urn:iso:std:iso:20022:tech:xsd:camt.029.001.09"
+	nsPain001 = "urn:iso:std:iso:20022:tech:xsd:pain.001.001.10"
+	nsPain002 = "urn:iso:std:iso:20022:tech:xsd:pain.002.001.11"
 )
 
 // rootKinds maps each message's business root element (the child of Document) to its kind.
@@ -36,6 +40,8 @@ var rootKinds = map[string]string{
 	"FIToFIPmtStsReq":   KindPacs028,
 	"FIToFIPmtStsRpt":   KindPacs002,
 	"RsltnOfInvstgtn":   KindCamt029,
+	"CstmrCdtTrfInitn":  KindPain001,
+	"CstmrPmtStsRpt":    KindPain002,
 }
 
 // Kind identifies an ISO 20022 document by the element directly inside Document. It returns "" for
@@ -276,4 +282,139 @@ func decode029(raw []byte) (Status, error) {
 	}
 	return Status{Kind: KindCamt029, MsgId: d.Body.Assgnmt.Id, OrgnlEndToEndId: d.Body.Tx.OrgnlEndToEndId,
 		TxSts: d.Body.Conf, ReasonCode: d.Body.Tx.Rsn}, nil
+}
+
+// --- pain.001.001.10 (customer credit transfer initiation) ----------------------------------
+
+type doc001 struct {
+	XMLName xml.Name `xml:"Document"`
+	NS      string   `xml:"xmlns,attr"`
+	Body    cstmrCT  `xml:"CstmrCdtTrfInitn"`
+}
+
+type cstmrCT struct {
+	GrpHdr grpHdrPain `xml:"GrpHdr"`
+	PmtInf pmtInf     `xml:"PmtInf"`
+}
+
+type grpHdrPain struct {
+	MsgId    string `xml:"MsgId"`
+	CreDtTm  string `xml:"CreDtTm"`
+	NbOfTxs  string `xml:"NbOfTxs"`
+	InitgPty party  `xml:"InitgPty"`
+}
+
+type party struct {
+	Nm string `xml:"Nm"`
+}
+
+type pmtInf struct {
+	PmtInfId  string    `xml:"PmtInfId"`
+	PmtMtd    string    `xml:"PmtMtd"`
+	ReqdExctn reqdDt    `xml:"ReqdExctnDt"`
+	Dbtr      party     `xml:"Dbtr"`
+	DbtrAcct  acct      `xml:"DbtrAcct"`
+	DbtrAgt   agent     `xml:"DbtrAgt"`
+	Tx        painTxInf `xml:"CdtTrfTxInf"`
+}
+
+type reqdDt struct {
+	Dt string `xml:"Dt"`
+}
+
+type painTxInf struct {
+	PmtId    pmtId    `xml:"PmtId"`
+	Amt      instdAmt `xml:"Amt"`
+	CdtrAgt  agent    `xml:"CdtrAgt"`
+	Cdtr     party    `xml:"Cdtr"`
+	CdtrAcct acct     `xml:"CdtrAcct"`
+}
+
+type instdAmt struct {
+	InstdAmt amt `xml:"InstdAmt"`
+}
+
+func encode001(r Request) ([]byte, error) {
+	return marshal(doc001{NS: nsPain001, Body: cstmrCT{
+		GrpHdr: grpHdrPain{MsgId: r.MsgId, CreDtTm: nowISO(), NbOfTxs: "1", InitgPty: party{Nm: "prova"}},
+		PmtInf: pmtInf{
+			PmtInfId: r.MsgId, PmtMtd: "TRF", ReqdExctn: reqdDt{Dt: orToday(r.ValueDate)},
+			Dbtr: party{Nm: "Debtor"}, DbtrAcct: account(r.DebtorIBAN, r.DebtorAcct), DbtrAgt: agent{BICFI: r.DebtorBIC},
+			Tx: painTxInf{
+				PmtId:   pmtId{InstrId: r.MsgId, EndToEndId: r.EndToEndId},
+				Amt:     instdAmt{InstdAmt: amt{Ccy: r.Currency, Val: r.Amount}},
+				CdtrAgt: agent{BICFI: r.CreditBIC}, Cdtr: party{Nm: "Creditor"}, CdtrAcct: account(r.CreditIBAN, r.CreditAcct),
+			},
+		},
+	}}, KindPain001)
+}
+
+func parse001(raw []byte) (Request, error) {
+	var d doc001
+	if err := xml.Unmarshal(raw, &d); err != nil {
+		return Request{}, fmt.Errorf("iso20022: parse pain.001: %w", err)
+	}
+	t := d.Body.PmtInf
+	return Request{
+		Kind: KindPain001, MsgId: d.Body.GrpHdr.MsgId, EndToEndId: t.Tx.PmtId.EndToEndId,
+		Amount: strings.TrimSpace(t.Tx.Amt.InstdAmt.Val), Currency: t.Tx.Amt.InstdAmt.Ccy,
+		DebtorAcct: t.DbtrAcct.id(), CreditAcct: t.Tx.CdtrAcct.id(), DebtorIBAN: t.DbtrAcct.IBAN, CreditIBAN: t.Tx.CdtrAcct.IBAN,
+		DebtorBIC: t.DbtrAgt.BICFI, CreditBIC: t.Tx.CdtrAgt.BICFI,
+	}, nil
+}
+
+// --- pain.002.001.11 (customer payment status report, response to pain.001) -----------------
+
+type doc002pain struct {
+	XMLName xml.Name    `xml:"Document"`
+	NS      string      `xml:"xmlns,attr"`
+	Body    cstmrStsRpt `xml:"CstmrPmtStsRpt"`
+}
+
+type cstmrStsRpt struct {
+	GrpHdr   grpHdr002   `xml:"GrpHdr"`
+	OrgnlGrp orgnlGrpSts `xml:"OrgnlGrpInfAndSts"`
+	Tx       painSts     `xml:"OrgnlPmtInfAndSts>TxInfAndSts"`
+}
+
+type orgnlGrpSts struct {
+	OrgnlMsgId   string `xml:"OrgnlMsgId"`
+	OrgnlMsgNmId string `xml:"OrgnlMsgNmId"`
+}
+
+type painSts struct {
+	OrgnlEndToEndId string  `xml:"OrgnlEndToEndId"`
+	TxSts           string  `xml:"TxSts"`
+	Rsn             *rsnInf `xml:"StsRsnInf,omitempty"`
+}
+
+func encode002pain(s Status) ([]byte, error) {
+	b := cstmrStsRpt{
+		GrpHdr:   grpHdr002{MsgId: s.MsgId, CreDtTm: nowISO()},
+		OrgnlGrp: orgnlGrpSts{OrgnlMsgId: s.OrgnlEndToEndId, OrgnlMsgNmId: "pain.001.001.10"},
+		Tx:       painSts{OrgnlEndToEndId: s.OrgnlEndToEndId, TxSts: s.TxSts},
+	}
+	if s.ReasonCode != "" {
+		b.Tx.Rsn = &rsnInf{Code: s.ReasonCode}
+	}
+	return marshal(doc002pain{NS: nsPain002, Body: b}, KindPain002)
+}
+
+func decode002pain(raw []byte) (Status, error) {
+	var d doc002pain
+	if err := xml.Unmarshal(raw, &d); err != nil {
+		return Status{}, fmt.Errorf("iso20022: parse pain.002: %w", err)
+	}
+	s := Status{Kind: KindPain002, MsgId: d.Body.GrpHdr.MsgId, OrgnlEndToEndId: d.Body.Tx.OrgnlEndToEndId, TxSts: d.Body.Tx.TxSts}
+	if d.Body.Tx.Rsn != nil {
+		s.ReasonCode = d.Body.Tx.Rsn.Code
+	}
+	return s, nil
+}
+
+func orToday(d string) string {
+	if d != "" {
+		return d
+	}
+	return time.Now().UTC().Format("2006-01-02")
 }

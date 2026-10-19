@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.10">
+  <CstmrCdtTrfInitn>
+    <GrpHdr><MsgId>PAIN-0001</MsgId><CreDtTm>2026-10-18T09:30:00Z</CreDtTm><NbOfTxs>1</NbOfTxs>
+      <InitgPty><Nm>Alpha Trading GmbH</Nm></InitgPty></GrpHdr>
+    <PmtInf>
+      <PmtInfId>PMT-1</PmtInfId><PmtMtd>TRF</PmtMtd>
+      <ReqdExctnDt><Dt>2026-10-20</Dt></ReqdExctnDt>
+      <Dbtr><Nm>Alpha Trading GmbH</Nm><PstlAdr><TwnNm>Frankfurt</TwnNm><Ctry>DE</Ctry></PstlAdr></Dbtr>
+      <DbtrAcct><Id><IBAN>DE89370400440532013000</IBAN></Id></DbtrAcct>
+      <DbtrAgt><FinInstnId><BICFI>BANKDEFFXXX</BICFI></FinInstnId></DbtrAgt>
+      <CdtTrfTxInf>
+        <PmtId><EndToEndId>E2E-PAIN-1</EndToEndId><UETR>8a7c3b2e-1f4d-4a9b-8c2e-6f1a2b3c4d5e</UETR></PmtId>
+        <Amt><InstdAmt Ccy="EUR">1500.00</InstdAmt></Amt>
+        <CdtrAgt><FinInstnId><BICFI>BANKFRPPXXX</BICFI></FinInstnId></CdtrAgt>
+        <Cdtr><Nm>Beta Supplies SARL</Nm><PstlAdr><TwnNm>Paris</TwnNm><Ctry>FR</Ctry></PstlAdr></Cdtr>
+        <CdtrAcct><Id><IBAN>FR1420041010050500013M02606</IBAN></Id></CdtrAcct>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

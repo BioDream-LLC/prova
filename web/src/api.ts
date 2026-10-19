@@ -216,6 +216,32 @@ export const api = {
   transform: (direction: 'mt2mx' | 'mx2mt', payload: string) =>
     postJSON<{ result: string; format: string }>('/api/transform', { direction, payload }),
   report: (days: number) => getJSON<Report>(`/api/reports/summary?days=${days}`),
+  validateExamples: () => getJSON<ValidationExample[]>('/api/validate/examples'),
+  validate: (message: string, profile: string) =>
+    postJSON<ValidationReport>('/api/validate', { message, profile }),
+  counterparty: (protocol: string, message: string, decision: string, reason: string) =>
+    postJSON<{ raw: string; fields: Record<string, string> }>('/api/counterparty', { protocol, message, decision, reason }),
+}
+
+export type Severity = 'error' | 'warning' | 'note'
+export interface Finding {
+  rule: string
+  severity: Severity
+  message: string
+  path: string
+  fix?: string
+}
+export interface ValidationReport {
+  kind: string
+  namespace: string
+  profile: string
+  schema: boolean
+  findings: Finding[]
+}
+export interface ValidationExample {
+  name: string
+  kind: string
+  xml: string
 }
 
 /** useAsync runs loader on mount (and when deps change), exposing data/error/loading + reload. */

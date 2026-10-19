@@ -6,6 +6,7 @@ The binary has four modes. With no subcommand it is the server.
 |---|---|
 | `prova [options]` | serve the web interface and API; the options are in [Server Options](#server-options) |
 | `prova run …` | run a suite, scenario, load test or replay headless, for CI |
+| `prova validate …` | validate an ISO 20022 message against the schema and a profile |
 | `prova user …` | manage accounts |
 | `prova manual …` | write this manual as one HTML file |
 
@@ -28,6 +29,19 @@ prova run --replay cassette.jsonl
 | 2 | a verdict was indeterminate (unless `--allow-indeterminate`) |
 
 Point your pipeline at the JUnit file and a failed proof fails the build. `prova run` does not use the database or need an account; it is meant to run in a build container.
+
+## prova validate
+
+`prova validate` checks an ISO 20022 message against the bundled schema and, with `--profile CBPR+`, the cross-border usage-guideline rules. It prints the findings (or SARIF with `--sarif`) and exits non-zero on an error, so it gates a build.
+
+```
+prova validate payment.xml
+prova validate --profile CBPR+ payment.xml
+prova validate --profile CBPR+ --sarif payment.xml > findings.sarif
+cat payment.xml | prova validate -
+```
+
+See [Validating messages](#validating-messages).
 
 ## prova user
 

@@ -26,6 +26,14 @@ The wire exchange of a run, message by message: the fields as prova decoded them
 
 MT103 in, pacs.008 out, and back. Paste a message, convert it, and see every mapped field. See [Protocols](#protocols).
 
+## Validate
+
+Paste or load an ISO 20022 message and check it against the official XML schema and, optionally, the CBPR+ usage-guideline profile. Every finding names the rule, the field it points at and the fix. Bundled examples show both a clean pass and real findings, and the findings export as SARIF 2.1.0 for code scanning. The same engine backs `prova validate` on the command line. See [Validating messages](#validating-messages).
+
+## Counterparty
+
+Act as the far side of the exchange: choose the reply a payment host, card switch or trading venue would send — accept or reject, with a reason code — and see the exact wire message prova would read back and the normalized fields it decides on. It is the manual twin of the built-in simulators.
+
 ## Proof
 
 The heart of prova. For the selected run it shows the verdict, the argumentation graph that decided it, the cited proof chain, what evidence would settle an indeterminate verdict, the second engine's verdict, and the certificate. [Verdicts and Proofs](#verdicts-and-proofs) explains how to read it.

@@ -149,6 +149,16 @@ func iso20022Scenarios() []Scenario {
 		{ID: "pacs028-status-unknown", Name: "pacs.028 — status of a payment never made", Protocol: p, Message: "pacs.028",
 			Description: "Ask for the status of an EndToEndId the host never processed. It must reject (NOOR), not invent a status.",
 			Request:     ref("STS-3", "E2E-NEVER"), Context: kv("originalKnown", "false", "expectReason", "NOOR"), Expect: "reject (NOOR)"},
+		// pain.001 customer credit transfer initiation
+		{ID: "pain001-within-balance", Name: "pain.001 — customer transfer within balance", Protocol: p, Message: "pain.001",
+			Description: "A customer initiates a 90.00 credit transfer from an account seeded with 142.00. The host must accept (pain.002 ACSP).",
+			Request:     mx("90.00", "E2E-PAIN-OK", "ACC-EUR-1"), Context: bal, Expect: "accept (ACSP)"},
+		{ID: "pain001-over-balance", Name: "pain.001 — customer transfer over balance", Protocol: p, Message: "pain.001",
+			Description: "A customer initiates a 150.00 transfer against 142.00. The host must reject the initiation (pain.002 RJCT, AM04).",
+			Request:     mx("150.00", "E2E-PAIN-OVER", "ACC-EUR-1"), Context: with(bal, "expectReason", "AM04"), Expect: "reject (AM04)"},
+		{ID: "pain001-unknown-currency", Name: "pain.001 — initiation in an unknown currency", Protocol: p, Message: "pain.001",
+			Description: "A customer initiates a transfer in XYZ, not an ISO 4217 code. The host must reject with AM11.",
+			Request:     with(mx("90.00", "E2E-PAIN-XYZ", "ACC-EUR-1"), "Currency", "XYZ"), Context: with(bal, "expectReason", "AM11"), Expect: "reject (AM11)"},
 	}
 }
 
@@ -213,6 +223,24 @@ func iso8583Scenarios() []Scenario {
 		{ID: "iso8583-echo", Name: "ISO 8583 0800 — network echo test", Protocol: p, Message: "0800",
 			Description: "Send a network-management echo test (DE70=301). The switch must answer 0810 with DE39=00.",
 			Request:     kv("STAN", "000116", "NetworkCode", "301"), Context: map[string]string{}, Expect: "0810 (DE39=00)"},
+		// Card security: PIN block (DE52), MAC (DE64) and EMV chip data (DE55)
+		{ID: "iso8583-chip-valid", Name: "ISO 8583 0100 — chip purchase with ARQC", Protocol: p,
+			Description: "A chip-read (DE22=051) authorisation carrying a valid PIN block, MAC and EMV data with an Application Cryptogram (9F26). Within balance, the switch must approve.",
+			Request: with(card("90.00", "000120"), "POSEntryMode", "051", "PINBlock", "0412FFFFFFFFFF99",
+				"MAC", "A1B2C3D4E5F60718", "ICCData", "9F26080123456789ABCDEF9F2701809F3602000195050000000000"),
+			Context: bal, Expect: "approve (DE39=00)"},
+		{ID: "iso8583-chip-no-emv", Name: "ISO 8583 0100 — chip entry without EMV data", Protocol: p,
+			Description: "A chip-read entry (DE22=051) carrying no DE55 EMV data at all. The switch must decline with DE39=30 (format error).",
+			Request:     with(card("90.00", "000121"), "POSEntryMode", "051"), Context: with(bal, "expectReason", "30"), Expect: "decline (DE39=30)"},
+		{ID: "iso8583-chip-no-arqc", Name: "ISO 8583 0100 — EMV data missing its cryptogram", Protocol: p,
+			Description: "A chip authorisation whose DE55 is well-formed TLV but carries no Application Cryptogram (9F26). The switch must decline with DE39=30.",
+			Request:     with(card("90.00", "000122"), "POSEntryMode", "051", "ICCData", "9F2701809F3602000195050000000000"), Context: with(bal, "expectReason", "30"), Expect: "decline (DE39=30)"},
+		{ID: "iso8583-bad-pin-block", Name: "ISO 8583 0100 — malformed PIN block", Protocol: p,
+			Description: "An authorisation whose DE52 PIN block is not a 16-hex ISO 9564 block. The switch must decline with DE39=30.",
+			Request:     with(card("90.00", "000123"), "PINBlock", "0412FFFF"), Context: with(bal, "expectReason", "30"), Expect: "decline (DE39=30)"},
+		{ID: "iso8583-bad-mac", Name: "ISO 8583 0100 — malformed MAC", Protocol: p,
+			Description: "An authorisation whose DE64 MAC is not 16 or 32 hex characters. The switch must decline with DE39=30.",
+			Request:     with(card("90.00", "000124"), "MAC", "A1B2C3"), Context: with(bal, "expectReason", "30"), Expect: "decline (DE39=30)"},
 	}
 }
 
@@ -279,5 +307,9 @@ func fixScenarios() []Scenario {
 		{ID: "fix-status-unknown", Name: "FIX H — status of an unknown order", Protocol: p, Message: "H",
 			Description: "Ask for the status of ORD-NONE, which the venue never received. It must reject (OrdRejReason=5, unknown order).",
 			Request:     kv("OrigClOrdID", "ORD-NONE", "Symbol", "ACME", "Side", "buy"), Context: kv("originalKnown", "false", "expectReason", "5"), Expect: "reject (OrdRejReason=5)"},
+		{ID: "fix-partial-fill", Name: "FIX D — order partially filled", Protocol: p,
+			Description: "Send a 9 x 10.00 order for PARTL, which the venue only partly fills (ExecType=1, OrdStatus=1), leaving the balance working. Within buying power, the venue must accept and begin filling.",
+			Request:     kv("Account", "ACC1", "Symbol", "PARTL", "Side", "buy", "OrderQty", "9", "Price", "10.00", "Currency", "USD", "Amount", "90.00"),
+			Context:     kv("availableBalance", "142.00"), Expect: "partial fill (ExecType=1, OrdStatus=1)"},
 	}
 }

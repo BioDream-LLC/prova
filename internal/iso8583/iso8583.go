@@ -28,19 +28,23 @@ type fieldSpec struct {
 // spec is the (deliberately compact) data-element dictionary this adapter speaks. It is a genuine
 // subset of ISO 8583 field encodings: fixed-length numerics plus LLVAR for the PAN.
 var spec = map[int]fieldSpec{
-	2:  {llvar, 19}, // Primary account number
-	3:  {fixed, 6},  // Processing code
-	4:  {fixed, 12}, // Amount, transaction (minor units)
-	7:  {fixed, 10}, // Transmission date & time
-	11: {fixed, 6},  // System trace audit number
-	14: {fixed, 4},  // Date, expiration (YYMM)
-	37: {fixed, 12}, // Retrieval reference number
-	38: {fixed, 6},  // Authorisation identification response
-	39: {fixed, 2},  // Response code
-	41: {fixed, 8},  // Card acceptor terminal id
-	49: {fixed, 3},  // Currency code, transaction (numeric)
-	70: {fixed, 3},  // Network management information code (secondary bitmap)
-	90: {fixed, 42}, // Original data elements (secondary bitmap)
+	2:  {llvar, 19},   // Primary account number
+	3:  {fixed, 6},    // Processing code
+	4:  {fixed, 12},   // Amount, transaction (minor units)
+	7:  {fixed, 10},   // Transmission date & time
+	11: {fixed, 6},    // System trace audit number
+	14: {fixed, 4},    // Date, expiration (YYMM)
+	22: {fixed, 3},    // POS entry mode (e.g. 051 chip, 071 contactless, 010 manual)
+	37: {fixed, 12},   // Retrieval reference number
+	38: {fixed, 6},    // Authorisation identification response
+	39: {fixed, 2},    // Response code
+	41: {fixed, 8},    // Card acceptor terminal id
+	49: {fixed, 3},    // Currency code, transaction (numeric)
+	52: {llvar, 32},   // PIN data (ISO 9564 PIN block, 8 bytes as 16 hex; length-preserved here)
+	55: {lllvar, 999}, // ICC / EMV data (BER-TLV, as hex)
+	64: {llvar, 32},   // Message authentication code (MAC, 8 bytes as 16 hex; length-preserved here)
+	70: {fixed, 3},    // Network management information code (secondary bitmap)
+	90: {fixed, 42},   // Original data elements (secondary bitmap)
 }
 
 // Pack encodes an MTI and a set of data elements into an ASCII ISO 8583 message: 4-char MTI, a
@@ -179,6 +183,10 @@ type Request struct {
 	Expiry         string // YYMM
 	OriginalSTAN   string // the STAN of the transaction a reversal reverses
 	NetworkCode    string // DE70 for 0800: 001 sign-on, 002 sign-off, 301 echo test
+	POSEntryMode   string // DE22: how the card was read (051/071 chip, 010 manual, 901 contactless mag)
+	PINBlock       string // DE52: ISO 9564 PIN block, 16 hex
+	ICCData        string // DE55: EMV / chip data, BER-TLV as hex
+	MAC            string // DE64: message authentication code, 16 or 32 hex
 }
 
 // FromRecord builds a Request from a flat string record.
@@ -200,6 +208,10 @@ func FromRecord(r map[string]string) Request {
 		Currency:       get("Currency", "EUR"),
 		STAN:           get("STAN", "000001"),
 		Terminal:       get("Terminal", "TERM0001"),
+		POSEntryMode:   get("POSEntryMode", ""),
+		PINBlock:       get("PINBlock", ""),
+		ICCData:        get("ICCData", ""),
+		MAC:            get("MAC", ""),
 	}
 }
 
@@ -227,6 +239,18 @@ func Encode(req Request) ([]byte, error) {
 	}
 	if req.Expiry != "" {
 		f[14] = req.Expiry
+	}
+	if req.POSEntryMode != "" {
+		f[22] = req.POSEntryMode
+	}
+	if req.PINBlock != "" {
+		f[52] = req.PINBlock
+	}
+	if req.ICCData != "" {
+		f[55] = req.ICCData
+	}
+	if req.MAC != "" {
+		f[64] = req.MAC
 	}
 	switch mti {
 	case "0100", "0200":

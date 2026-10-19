@@ -29,6 +29,8 @@ type Sim struct {
 	Listed map[string]bool
 	// Halted is the set of symbols whose market is closed (2).
 	Halted map[string]bool
+	// Partial is the set of symbols the venue only partially fills on a NewOrderSingle (ExecType=1).
+	Partial map[string]bool
 	// Orders are the orders the venue holds, by ClOrdID: what a cancel, replace or status request
 	// refers to.
 	Orders map[string]Order
@@ -191,7 +193,24 @@ func (s *Sim) handle(c net.Conn) {
 			if target == "" {
 				target = "PROVA"
 			}
-			if _, err := c.Write(Logon(seq, sender, target, now())); err != nil {
+			// Echo the client's session version (FIX.4.4 or FIXT.1.1 for FIX 5.0) and application version.
+			bs := m[TagBeginString]
+			if bs == "" {
+				bs = beginString
+			}
+			if _, err := c.Write(LogonV(bs, m[TagDefaultApplVerID], seq, sender, target, now())); err != nil {
+				return
+			}
+			seq++
+		case MsgResendRequest:
+			// Answer a resend request with an administrative SequenceReset in gap-fill mode, advancing
+			// the peer past the requested range (prova's sim replays nothing application-level).
+			bs := m[TagBeginString]
+			if bs == "" {
+				bs = beginString
+			}
+			end, _ := strconv.Atoi(m[TagEndSeqNo])
+			if _, err := c.Write(SequenceResetGapFill(bs, seq, sender, target, now(), end+1)); err != nil {
 				return
 			}
 			seq++
@@ -208,10 +227,19 @@ func (s *Sim) handle(c net.Conn) {
 		case MsgNewOrderSingle:
 			fill, rej, text := s.Decide(m)
 			var out []byte
-			if fill {
-				out = ExecFill(seq, sender, target, now(), m, s.nextExec())
-			} else {
+			switch {
+			case !fill:
 				out = ExecReject(seq, sender, target, now(), m, s.nextExec(), rej, text)
+			case s.Mode != "approve-all" && s.Partial[m[TagSymbol]]:
+				// A partial fill: half the order quantity, the rest left working.
+				q, _ := strconv.ParseInt(m[TagOrderQty], 10, 64)
+				cum := q / 2
+				if cum < 1 {
+					cum = 1
+				}
+				out = ExecPartialFill(seq, sender, target, now(), m, s.nextExec(), cum)
+			default:
+				out = ExecFill(seq, sender, target, now(), m, s.nextExec())
 			}
 			if _, err := c.Write(out); err != nil {
 				return

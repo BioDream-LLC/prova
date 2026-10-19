@@ -27,12 +27,13 @@ not a bare pass/fail or an AI explanation.
 prova has a response to each of the 13. That is coverage by category, not depth: the established tools
 ship far more messages, dialects and cases. What prova has, and what is still missing:
 
-| Area | prova (v0.1) | Gap |
+| Area | prova | Gap |
 |---|---|---|
-| ISO 20022 messages | pacs.008, pacs.009, pacs.004, camt.056 → camt.029, pacs.028 → pacs.002 | camt.052/053/054, pain.001/002, pacs.010, admi; XSD and usage-guideline (CBPR+, SEPA, FedNow) validation |
-| ISO 8583 | 0100, 0200, 0400, 0800; secondary bitmap; DE39 codes | scheme dialects (Visa Base I, Mastercard), 0120/0420 advices, EMV DE55, PIN and MAC, binary bitmaps and BCD |
-| FIX | 4.4: D, F, G, H; ExecutionReport, OrderCancelReject; session layer | FIX 4.2 and 5.0 SP2/FIXT, partial fills, market data, resend and gap fill |
-| Scenarios | 66 scenarios, 11 suites | case libraries of hundreds to thousands; official scheme certification sets |
+| ISO 20022 messages | pacs.008/009, pacs.004, camt.056→camt.029, pacs.028→pacs.002, pain.001→pain.002 | camt.052/053/054 statements, pacs.003/010, admi; more message sets |
+| ISO 20022 validation | full XSD validation (cross-checked vs libxml2) + CBPR+ structured-address, UETR and LEI rules, SARIF output | SEPA and FedNow profiles, MyStandards usage guidelines |
+| ISO 8583 | 0100, 0200, 0400, 0800; secondary bitmap; DE39 codes; chip/PIN/MAC format checks (DE52/55/64, 9F26 ARQC) | scheme dialects (Visa Base I, Mastercard), cryptographic PIN/MAC verification, full EMV kernel, HSM |
+| FIX | 4.4 and 5.0 SP2 (FIXT.1.1): D, F, G, H; ExecutionReport incl. partial fills, OrderCancelReject; session layer with ResendRequest/SequenceReset gap-fill | FIX 4.2, richer recovery edge cases, market data |
+| Scenarios | 75 scenarios, 13 suites | case libraries of hundreds to thousands; official scheme certification sets |
 | Rules | 16 controls, written twice and cross-checked | usage-guideline rules per market |
 
 Beyond the categories, prova decides every verdict with **two independent engines** — its Go casebook
