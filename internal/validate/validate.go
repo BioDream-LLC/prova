@@ -17,8 +17,16 @@ func nsKind(ns string) string {
 }
 
 // Message validates one ISO 20022 message: its XML schema, then the usage-guideline profile. An
-// empty profile applies the schema only; "CBPR+" also applies the cross-border profile rules.
-func Message(raw []byte, profile string) (Report, error) {
+// empty profile applies the schema only; see Profiles for the others.
+func Message(raw []byte, profile string) (Report, error) { return MessageWith(raw, profile, nil) }
+
+// maxGuideline caps an uploaded usage-guideline schema.
+const maxGuideline = 8 << 20
+
+// MessageWith validates a message against the bundled schema, a profile and, when guideline is given,
+// a usage-guideline schema: the restricted XSD a market infrastructure publishes or MyStandards exports
+// for its usage guideline. Findings from the guideline schema carry rule ids "guideline.*".
+func MessageWith(raw []byte, profile string, guideline []byte) (Report, error) {
 	schemasOnce.Do(loadSchemas)
 	if schemasErr != nil {
 		return Report{}, schemasErr
@@ -42,10 +50,39 @@ func Message(raw []byte, profile string) (Report, error) {
 		rep.Findings = append(rep.Findings, validateSchema(s, doc)...)
 	}
 
-	if strings.EqualFold(profile, "CBPR+") || strings.EqualFold(profile, "cbpr") {
-		rep.Profile = "CBPR+"
-		rep.Findings = append(rep.Findings, cbprFindings(doc, rep.Kind)...)
+	if len(guideline) > 0 {
+		if len(guideline) > maxGuideline {
+			return Report{}, fmt.Errorf("validate: the usage-guideline schema is larger than %d MB", maxGuideline>>20)
+		}
+		g, err := parseSchema(guideline)
+		if err != nil {
+			return Report{}, fmt.Errorf("validate: usage-guideline schema: %w", err)
+		}
+		rep.Guideline = true
+		if g.ns != ns {
+			rep.Findings = append(rep.Findings, Finding{Rule: "guideline.namespace", Severity: Error, Path: "/Document",
+				Message: "the usage-guideline schema is for " + orNone(g.ns) + ", the message is " + orNone(ns)})
+		} else {
+			seen := map[string]bool{}
+			for _, f := range rep.Findings {
+				seen[f.Path+"|"+f.Message] = true
+			}
+			for _, f := range validateSchema(g, doc) {
+				if seen[f.Path+"|"+f.Message] {
+					continue // the base schema already reports it
+				}
+				f.Rule = "guideline." + strings.TrimPrefix(f.Rule, "xsd.")
+				rep.Findings = append(rep.Findings, f)
+			}
+		}
 	}
+
+	name, fs, ok := profileFindings(doc, rep.Kind, profile)
+	if !ok {
+		return Report{}, fmt.Errorf("validate: unknown profile %q (one of CBPR+, SEPA, SEPA-Inst, FedNow)", profile)
+	}
+	rep.Profile = name
+	rep.Findings = append(rep.Findings, fs...)
 	sortFindings(rep.Findings)
 	return rep, nil
 }

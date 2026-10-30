@@ -14,11 +14,12 @@ import (
 // when the message has an error-severity finding, so it works as a CI gate.
 func validateCLI(args []string) int {
 	fs := flag.NewFlagSet("prova validate", flag.ContinueOnError)
-	profile := fs.String("profile", "", "usage-guideline profile to apply on top of the schema (e.g. CBPR+)")
+	profile := fs.String("profile", "", "usage-guideline profile to apply on top of the schema: CBPR+, SEPA, SEPA-Inst or FedNow")
+	guideline := fs.String("schema", "", "also validate against this usage-guideline schema (a restricted XSD, e.g. a MyStandards export)")
 	sarif := fs.Bool("sarif", false, "write findings as SARIF 2.1.0 instead of text")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: prova validate [--profile CBPR+] [--sarif] <message.xml>")
-		fmt.Fprintln(os.Stderr, "       prova validate [--profile CBPR+] -   # read the message from stdin")
+		fmt.Fprintln(os.Stderr, "usage: prova validate [--profile CBPR+|SEPA|SEPA-Inst|FedNow] [--schema guideline.xsd] [--sarif] <message.xml>")
+		fmt.Fprintln(os.Stderr, "       prova validate [--profile ...] -   # read the message from stdin")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -41,7 +42,14 @@ func validateCLI(args []string) int {
 		return 2
 	}
 
-	rep, err := validate.Message(raw, *profile)
+	var ug []byte
+	if *guideline != "" {
+		if ug, err = os.ReadFile(*guideline); err != nil {
+			fmt.Fprintf(os.Stderr, "prova validate: %v\n", err)
+			return 2
+		}
+	}
+	rep, err := validate.MessageWith(raw, *profile, ug)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "prova validate: %v\n", err)
 		return 2
@@ -60,7 +68,7 @@ func validateCLI(args []string) int {
 		return 1
 	}
 
-	fmt.Printf("%s  schema=%v  profile=%s\n", orUnknown(rep.Kind), rep.Schema, orUnknown(rep.Profile))
+	fmt.Printf("%s  schema=%v  guideline=%v  profile=%s\n", orUnknown(rep.Kind), rep.Schema, rep.Guideline, orUnknown(rep.Profile))
 	if len(rep.Findings) == 0 {
 		fmt.Println("no findings — the message is valid")
 		return 0

@@ -46,10 +46,11 @@ type Finding struct {
 
 // Report is the outcome of validating one message.
 type Report struct {
-	Kind      string    `json:"kind"`      // message short name, e.g. pacs.008.001.08
-	Namespace string    `json:"namespace"` // the document's target namespace
-	Profile   string    `json:"profile"`   // the usage-guideline profile applied, e.g. "CBPR+"
-	Schema    bool      `json:"schema"`    // whether a schema was found and applied
+	Kind      string    `json:"kind"`                // message short name, e.g. pacs.008.001.08
+	Namespace string    `json:"namespace"`           // the document's target namespace
+	Profile   string    `json:"profile"`             // the usage-guideline profile applied, e.g. "CBPR+"
+	Schema    bool      `json:"schema"`              // whether a schema was found and applied
+	Guideline bool      `json:"guideline,omitempty"` // whether a usage-guideline schema was applied too
 	Findings  []Finding `json:"findings"`
 }
 

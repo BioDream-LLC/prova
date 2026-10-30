@@ -97,6 +97,32 @@ func TestDumpOutbound(t *testing.T) {
 		}
 		write(t, "samples/outbound-"+name+"-reply-valid.xml", out)
 	}
+	// Profile samples: a SEPA credit transfer, a SEPA instant one, and a FedNow transfer between US banks.
+	sepa := map[string]string{"MsgId": "SEPA-MSG-1", "EndToEndId": "SEPA-E2E-1", "Amount": "250.00", "Currency": "EUR",
+		"DebtorIBAN": "DE89370400440532013000", "CreditIBAN": "FR1420041010050500013M02606", "ServiceLevel": "SEPA",
+		"DebtorName": "Muster GmbH", "CreditorName": "Exemple SARL", "Remittance": "Invoice 2026-0042", "UETR": "8a562c67-ca16-48ba-b074-65581be6f002"}
+	for name, extra := range map[string]map[string]string{"sepa-pacs008": {}, "sepa-inst-pacs008": {"LocalInstrument": "INST"}, "sepa-pain001": {"Message": "pain.001"}} {
+		rec := map[string]string{}
+		for k, v := range sepa {
+			rec[k] = v
+		}
+		for k, v := range extra {
+			rec[k] = v
+		}
+		raw, err := iso20022.Encode(iso20022.FromRecord(rec))
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, "samples/"+name+"-valid.xml", raw)
+	}
+	fed, err := iso20022.Encode(iso20022.FromRecord(map[string]string{"MsgId": "FDN-MSG-1", "EndToEndId": "FDN-E2E-1", "Amount": "2500.00",
+		"Currency": "USD", "DebtorRTN": "011000015", "CreditRTN": "021000021", "DebtorAcct": "1234567890", "CreditAcct": "9876543210",
+		"DebtorName": "Acme Corp", "CreditorName": "Widget LLC", "UETR": "8a562c67-ca16-48ba-b074-65581be6f003"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, "samples/fednow-pacs008-valid.xml", fed)
+
 	for _, rk := range []string{iso20022.KindCamt052, iso20022.KindCamt054, "unknown-account"} {
 		rec := map[string]string{"Message": iso20022.KindCamt060, "MsgId": "MSG-RPT", "Account": "ACC-EUR-1", "ReportKind": rk,
 			"FromDate": "2026-10-01", "ToDate": "2026-10-20"}

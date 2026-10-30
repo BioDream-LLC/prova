@@ -24,7 +24,6 @@ import (
 
 	"github.com/biodream-llc/prova/internal/authweb"
 	"github.com/biodream-llc/prova/internal/engine"
-	"github.com/biodream-llc/prova/internal/iso20022"
 	"github.com/biodream-llc/prova/internal/mt"
 	"github.com/biodream-llc/prova/internal/script"
 	"github.com/biodream-llc/prova/internal/sims"
@@ -53,6 +52,10 @@ func main() {
 	// Subcommand: `prova validate` checks an ISO 20022 message against the schema and a profile.
 	if len(os.Args) > 1 && os.Args[1] == "validate" {
 		os.Exit(validateCLI(os.Args[2:]))
+	}
+	// Subcommand: `prova hsm` checks an HSM that speaks the payShield host commands.
+	if len(os.Args) > 1 && os.Args[1] == "hsm" {
+		os.Exit(hsmCLI(os.Args[2:]))
 	}
 
 	o := defineServerFlags(flag.CommandLine)
@@ -110,6 +113,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	signIn.Register(mux)
+	registerCardCrypto(mux, *o.hsmAddr, *o.hsmHeader)
 	registerReports(mux, st)
 	if err := registerManual(mux, eng, flag.CommandLine); err != nil {
 		log.Fatalf("prova: manual: %v", err)
@@ -215,58 +219,53 @@ func main() {
 		writeJSON(w, http.StatusOK, res)
 	})
 
+	mux.HandleFunc("GET /api/transform/pairs", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"pairs": mt.Pairs, "samples": mt.Samples()})
+	})
 	mux.HandleFunc("POST /api/transform", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Direction string `json:"direction"` // mt2mx | mx2mt
 			Payload   string `json:"payload"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 			return
 		}
+		var res mt.Result
+		var err error
 		switch body.Direction {
 		case "mt2mx":
-			req, err := mt.MT103ToPacs008(body.Payload)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
-			}
-			out, err := iso20022.Encode(req)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]string{"result": string(out), "format": "pacs.008"})
+			res, err = mt.ToMX(body.Payload)
 		case "mx2mt":
-			req, err := iso20022.ParseRequest([]byte(body.Payload))
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
-			}
-			out, err := mt.Pacs008ToMT103(req)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]string{"result": out, "format": "MT103"})
+			res, err = mt.ToMT([]byte(body.Payload))
 		default:
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "direction must be mt2mx or mx2mt"})
+			return
 		}
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"result": res.Output, "format": res.To, "from": res.From, "to": res.To, "notes": res.Notes})
 	})
 
 	mux.HandleFunc("GET /api/validate/examples", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, validate.Examples())
 	})
+	mux.HandleFunc("GET /api/validate/profiles", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"profiles": validate.Profiles(), "schemas": validate.Bundled()})
+	})
 	mux.HandleFunc("POST /api/validate", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Message string `json:"message"`
 			Profile string `json:"profile"`
+			Schema  string `json:"schema"` // an optional usage-guideline XSD
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 			return
 		}
-		rep, err := validate.Message([]byte(body.Message), body.Profile)
+		rep, err := validate.MessageWith([]byte(body.Message), body.Profile, []byte(body.Schema))
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -357,6 +356,7 @@ func main() {
 // serverOptions are the server's command-line options.
 type serverOptions struct {
 	addr, tlsCert, tlsKey, httpRedirect *string
+	hsmAddr, hsmHeader                  *string
 	noSim, showVersion                  *bool
 	retainDays                          *int
 	demoTraffic                         *time.Duration
@@ -375,6 +375,8 @@ func defineServerFlags(fs *flag.FlagSet) *serverOptions {
 		retainDays:   fs.Int("retain-days", 0, "delete runs, suite runs, load runs and activity older than this many days (0 keeps everything)"),
 		demoTraffic:  fs.Duration("demo-traffic", 0, "run one of the shipped scenarios this often (e.g. 15m), so a demonstration shows live verdicts"),
 		showVersion:  fs.Bool("version", false, "print the version and exit"),
+		hsmAddr:      fs.String("hsm", "", "an HSM speaking the payShield host commands (host:port), for the Card security screen's check"),
+		hsmHeader:    fs.String("hsm-header", "", "the message header that HSM is configured with"),
 		auth:         registerAuthFlags(fs),
 	}
 }

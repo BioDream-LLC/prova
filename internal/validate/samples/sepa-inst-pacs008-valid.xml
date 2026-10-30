@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">
+  <FIToFICstmrCdtTrf>
+    <GrpHdr>
+      <MsgId>SEPA-MSG-1</MsgId>
+      <CreDtTm>2026-10-20T09:30:00Z</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <SttlmInf>
+        <SttlmMtd>CLRG</SttlmMtd>
+      </SttlmInf>
+    </GrpHdr>
+    <CdtTrfTxInf>
+      <PmtId>
+        <InstrId>SEPA-MSG-1</InstrId>
+        <EndToEndId>SEPA-E2E-1</EndToEndId>
+        <TxId>SEPA-E2E-1</TxId>
+        <UETR>8a562c67-ca16-48ba-b074-65581be6f002</UETR>
+      </PmtId>
+      <PmtTpInf>
+        <SvcLvl>
+          <Cd>SEPA</Cd>
+        </SvcLvl>
+        <LclInstrm>
+          <Cd>INST</Cd>
+        </LclInstrm>
+      </PmtTpInf>
+      <IntrBkSttlmAmt Ccy="EUR">250.00</IntrBkSttlmAmt>
+      <ChrgBr>SLEV</ChrgBr>
+      <Dbtr>
+        <Nm>Muster GmbH</Nm>
+        <PstlAdr>
+          <TwnNm>Frankfurt</TwnNm>
+          <Ctry>DE</Ctry>
+        </PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id>
+          <IBAN>DE89370400440532013000</IBAN>
+        </Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId>
+          <BICFI>BANKDEFFXXX</BICFI>
+        </FinInstnId>
+      </DbtrAgt>
+      <CdtrAgt>
+        <FinInstnId>
+          <BICFI>BANKFRPPXXX</BICFI>
+        </FinInstnId>
+      </CdtrAgt>
+      <Cdtr>
+        <Nm>Exemple SARL</Nm>
+        <PstlAdr>
+          <TwnNm>Paris</TwnNm>
+          <Ctry>FR</Ctry>
+        </PstlAdr>
+      </Cdtr>
+      <CdtrAcct>
+        <Id>
+          <IBAN>FR1420041010050500013M02606</IBAN>
+        </Id>
+      </CdtrAcct>
+      <RmtInf>
+        <Ustrd>Invoice 2026-0042</Ustrd>
+      </RmtInf>
+    </CdtTrfTxInf>
+  </FIToFICstmrCdtTrf>
+</Document>

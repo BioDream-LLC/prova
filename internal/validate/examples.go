@@ -40,6 +40,14 @@ func Examples() []Example {
 					"<PstlAdr><AdrLine>12 Rue de la Paix</AdrLine></PstlAdr>", 1)},
 		)
 	}
+	if base := exampleXML(out, "sepa-pacs008-valid"); base != "" {
+		out = append(out, Example{Name: "sepa-pacs008-bad-charges-and-text", Kind: "pacs.008.001.08",
+			XML: strings.Replace(strings.Replace(base, "<ChrgBr>SLEV</ChrgBr>", "<ChrgBr>SHAR</ChrgBr>", 1), "<Nm>Muster GmbH</Nm>", "<Nm>Müller &amp; Söhne</Nm>", 1)})
+	}
+	if base := exampleXML(out, "fednow-pacs008-valid"); base != "" {
+		out = append(out, Example{Name: "fednow-pacs008-bad-rtn-over-limit", Kind: "pacs.008.001.08",
+			XML: strings.Replace(strings.Replace(base, "<MmbId>021000021</MmbId>", "<MmbId>021000022</MmbId>", 1), ">2500.00<", ">1500000.00<", 1)})
+	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }

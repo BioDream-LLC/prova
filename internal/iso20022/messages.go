@@ -340,6 +340,7 @@ type rtrTxInf struct {
 	RtrId           string `xml:"RtrId"`
 	OrgnlEndToEndId string `xml:"OrgnlEndToEndId"`
 	RtrdAmt         amt    `xml:"RtrdIntrBkSttlmAmt"`
+	SttlmDt         string `xml:"IntrBkSttlmDt,omitempty"`
 	ChrgBr          string `xml:"ChrgBr,omitempty"`
 	RtrRsn          *rsnCd `xml:"RtrRsnInf,omitempty"`
 }
@@ -348,7 +349,7 @@ func encode004(r Request) ([]byte, error) {
 	return marshal(doc004{NS: ns(KindPacs004), Body: pmtRtr{
 		GrpHdr: grpHdr008{MsgId: r.MsgId, CreDtTm: nowISO(), NbOfTxs: "1", SttlmInf: sttlm{Mtd: "CLRG"}},
 		Tx: rtrTxInf{RtrId: r.EndToEndId, OrgnlEndToEndId: r.OrgnlEndToEndId,
-			RtrdAmt: amt{Ccy: r.Currency, Val: r.Amount}, ChrgBr: r.ChargeBearer, RtrRsn: reason(r.Reason)},
+			RtrdAmt: amt{Ccy: r.Currency, Val: r.Amount}, SttlmDt: r.ValueDate, ChrgBr: r.ChargeBearer, RtrRsn: reason(r.Reason)},
 	}}, KindPacs004)
 }
 
@@ -360,7 +361,7 @@ func parse004(raw []byte) (Request, error) {
 	t := d.Body.Tx
 	return Request{
 		Kind: KindPacs004, MsgId: d.Body.GrpHdr.MsgId, EndToEndId: t.RtrId, OrgnlEndToEndId: t.OrgnlEndToEndId,
-		Amount: trim(t.RtrdAmt.Val), Currency: t.RtrdAmt.Ccy, Reason: t.RtrRsn.code(),
+		Amount: trim(t.RtrdAmt.Val), Currency: t.RtrdAmt.Ccy, Reason: t.RtrRsn.code(), ValueDate: trim(t.SttlmDt),
 	}, nil
 }
 
@@ -706,10 +707,14 @@ type balance struct {
 }
 
 type entry struct {
+	NtryRef   string `xml:"NtryRef,omitempty"`
 	Amt       amt    `xml:"Amt"`
 	CdtDbtInd string `xml:"CdtDbtInd"`
 	Sts       code   `xml:"Sts"`
-	BkTxCd    struct {
+	ValDt     *struct {
+		Dt string `xml:"Dt"`
+	} `xml:"ValDt,omitempty"`
+	BkTxCd struct {
 		Prtry struct {
 			Cd string `xml:"Cd"`
 		} `xml:"Prtry"`
@@ -732,24 +737,43 @@ type docReport struct {
 }
 
 // encodeReport writes the account report s.Kind names. Statements and intraday reports carry the
-// closing booked balance (CLBD); a notification carries entries only. Entries are one booked credit per
-// count, for one minor unit, so a test can count them.
+// closing booked balance (CLBD), and the opening one (OPBD) when it is known; a notification carries
+// entries only. Without an entry list, the report lists s.Entries booked credits of one minor unit, so a
+// test can count them.
 func encodeReport(s Status) ([]byte, error) {
 	r := &report{Id: s.MsgId, Acct: account("", s.Account)}
-	if s.Kind != KindCamt054 {
+	bal := func(code, v, date string) balance {
 		var b balance
-		b.Tp.CdOrPrtry.Cd = "CLBD"
-		v, ind := s.ClosingBalance, "CRDT"
+		b.Tp.CdOrPrtry.Cd = code
+		ind := "CRDT"
 		if strings.HasPrefix(v, "-") {
 			v, ind = v[1:], "DBIT"
 		}
 		b.Amt, b.CdtDbtInd = amt{Ccy: s.Currency, Val: v}, ind
-		b.Dt.Dt = today()
-		r.Bal = []balance{b}
+		b.Dt.Dt = orToday(date)
+		return b
 	}
-	for i := 0; i < s.Entries; i++ {
+	if s.Kind != KindCamt054 {
+		if s.OpeningBalance != "" {
+			r.Bal = append(r.Bal, bal("OPBD", s.OpeningBalance, s.OpeningDate))
+		}
+		r.Bal = append(r.Bal, bal("CLBD", s.ClosingBalance, s.ClosingDate))
+	}
+	list := s.EntryList
+	if len(list) == 0 {
+		for i := 0; i < s.Entries; i++ {
+			list = append(list, Entry{Amount: "0.01", Currency: s.Currency, CreditDebit: "CRDT"})
+		}
+	}
+	for _, x := range list {
 		var e entry
-		e.Amt, e.CdtDbtInd, e.Sts.Cd = amt{Ccy: s.Currency, Val: "0.01"}, "CRDT", "BOOK"
+		e.NtryRef = x.Ref
+		e.Amt, e.CdtDbtInd, e.Sts.Cd = amt{Ccy: orDefault(x.Currency, s.Currency), Val: x.Amount}, orDefault(x.CreditDebit, "CRDT"), "BOOK"
+		if x.ValueDate != "" {
+			e.ValDt = &struct {
+				Dt string `xml:"Dt"`
+			}{x.ValueDate}
+		}
 		e.BkTxCd.Prtry.Cd = "PROVA"
 		r.Ntry = append(r.Ntry, e)
 	}
@@ -787,12 +811,23 @@ func decodeReport(raw []byte) (Status, error) {
 	}
 	s := Status{Kind: kind, MsgId: body.GrpHdr.MsgId, Account: r.Acct.id(), Entries: len(r.Ntry)}
 	for _, b := range r.Bal {
-		if b.Tp.CdOrPrtry.Cd == "CLBD" {
-			s.Currency, s.ClosingBalance = b.Amt.Ccy, trim(b.Amt.Val)
-			if b.CdtDbtInd == "DBIT" {
-				s.ClosingBalance = "-" + s.ClosingBalance
-			}
+		v := trim(b.Amt.Val)
+		if b.CdtDbtInd == "DBIT" {
+			v = "-" + v
 		}
+		switch b.Tp.CdOrPrtry.Cd {
+		case "CLBD":
+			s.Currency, s.ClosingBalance, s.ClosingDate = b.Amt.Ccy, v, b.Dt.Dt
+		case "OPBD":
+			s.OpeningBalance, s.OpeningDate = v, b.Dt.Dt
+		}
+	}
+	for _, e := range r.Ntry {
+		x := Entry{Amount: trim(e.Amt.Val), Currency: e.Amt.Ccy, CreditDebit: e.CdtDbtInd, Ref: e.NtryRef}
+		if e.ValDt != nil {
+			x.ValueDate = e.ValDt.Dt
+		}
+		s.EntryList = append(s.EntryList, x)
 	}
 	if s.Currency == "" && len(r.Ntry) > 0 {
 		s.Currency = r.Ntry[0].Amt.Ccy

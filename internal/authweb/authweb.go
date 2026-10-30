@@ -135,9 +135,9 @@ func need(r *http.Request) auth.Role {
 	if strings.HasPrefix(r.URL.Path, "/api/users") || r.URL.Path == "/api/activity" {
 		return auth.Admin
 	}
-	// /api/validate and /api/counterparty are POSTs but change nothing — they compute from the body
-	// and return a result — so a viewer (including the public demonstration) may use them.
-	if r.URL.Path == "/api/validate" || r.URL.Path == "/api/counterparty" {
+	// /api/validate, /api/counterparty and /api/cardcrypto are POSTs but change nothing — they compute
+	// from the body and return a result — so a viewer (including the public demonstration) may use them.
+	if r.URL.Path == "/api/validate" || r.URL.Path == "/api/counterparty" || r.URL.Path == "/api/cardcrypto" {
 		return auth.Viewer
 	}
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {

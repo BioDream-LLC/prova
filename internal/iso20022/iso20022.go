@@ -69,6 +69,13 @@ func FromRecord(r map[string]string) Request {
 		}
 		return dflt
 	}
+	// A US agent identified by its routing number needs no BIC; others default to a test BIC.
+	bic := func(k, rtnKey, dflt string) string {
+		if r[rtnKey] != "" && r[k] == "" {
+			return ""
+		}
+		return get(k, dflt)
+	}
 	return Request{
 		Kind:       get("Message", KindPacs008),
 		MsgId:      get("MsgId", "MSG-"+time.Now().UTC().Format("150405.000")),
@@ -79,8 +86,8 @@ func FromRecord(r map[string]string) Request {
 		ValueDate:  get("ValueDate", ""),
 		DebtorAcct: get("DebtorAcct", "ACC-DBTR-1"),
 		CreditAcct: get("CreditAcct", "ACC-CDTR-1"),
-		DebtorBIC:  get("DebtorBIC", "BANKDEFFXXX"),
-		CreditBIC:  get("CreditBIC", "BANKFRPPXXX"),
+		DebtorBIC:  bic("DebtorBIC", "DebtorRTN", "BANKDEFFXXX"),
+		CreditBIC:  bic("CreditBIC", "CreditRTN", "BANKFRPPXXX"),
 		DebtorIBAN: get("DebtorIBAN", ""),
 		CreditIBAN: get("CreditIBAN", ""),
 		DebtorRTN:  get("DebtorRTN", ""),
@@ -303,8 +310,21 @@ type Status struct {
 	// Account reports.
 	Account        string
 	Currency       string
+	OpeningBalance string // signed decimal; statements only, optional
 	ClosingBalance string // signed decimal: negative when the closing balance is a debit
-	Entries        int
+	OpeningDate    string // the balances' dates, YYYY-MM-DD; today when empty
+	ClosingDate    string
+	Entries        int // how many entries the report lists (EntryList's length when that is set)
+	EntryList      []Entry
+}
+
+// Entry is one booked entry of an account report.
+type Entry struct {
+	Amount      string // positive decimal
+	Currency    string
+	CreditDebit string // CRDT or DBIT
+	Ref         string // the entry reference (NtryRef)
+	ValueDate   string // YYYY-MM-DD, optional
 }
 
 // EncodeStatus renders the reply (used by the simulated host).

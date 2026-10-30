@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">
+  <FIToFICstmrCdtTrf>
+    <GrpHdr>
+      <MsgId>FDN-MSG-1</MsgId>
+      <CreDtTm>2026-10-20T09:30:00Z</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <SttlmInf>
+        <SttlmMtd>CLRG</SttlmMtd>
+      </SttlmInf>
+    </GrpHdr>
+    <CdtTrfTxInf>
+      <PmtId>
+        <InstrId>FDN-MSG-1</InstrId>
+        <EndToEndId>FDN-E2E-1</EndToEndId>
+        <TxId>FDN-E2E-1</TxId>
+        <UETR>8a562c67-ca16-48ba-b074-65581be6f003</UETR>
+      </PmtId>
+      <IntrBkSttlmAmt Ccy="USD">2500.00</IntrBkSttlmAmt>
+      <ChrgBr>SLEV</ChrgBr>
+      <Dbtr>
+        <Nm>Acme Corp</Nm>
+      </Dbtr>
+      <DbtrAcct>
+        <Id>
+          <Othr>
+            <Id>1234567890</Id>
+          </Othr>
+        </Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId>
+          <ClrSysMmbId>
+            <ClrSysId>
+              <Cd>USABA</Cd>
+            </ClrSysId>
+            <MmbId>011000015</MmbId>
+          </ClrSysMmbId>
+        </FinInstnId>
+      </DbtrAgt>
+      <CdtrAgt>
+        <FinInstnId>
+          <ClrSysMmbId>
+            <ClrSysId>
+              <Cd>USABA</Cd>
+            </ClrSysId>
+            <MmbId>021000021</MmbId>
+          </ClrSysMmbId>
+        </FinInstnId>
+      </CdtrAgt>
+      <Cdtr>
+        <Nm>Widget LLC</Nm>
+      </Cdtr>
+      <CdtrAcct>
+        <Id>
+          <Othr>
+            <Id>9876543210</Id>
+          </Othr>
+        </Id>
+      </CdtrAcct>
+    </CdtTrfTxInf>
+  </FIToFICstmrCdtTrf>
+</Document>

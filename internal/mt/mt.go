@@ -67,6 +67,39 @@ func parseBlock4(msg string) (map[string]string, error) {
 	return fields, nil
 }
 
+// repeated returns every value of a field that may occur more than once in block 4 (MT940's :61:),
+// in order. parseBlock4 keeps only the last of them.
+func repeated(msg, tag string) []string {
+	start := strings.Index(msg, "{4:")
+	block := msg
+	if start >= 0 {
+		block = msg[start+3:]
+		if end := strings.Index(block, "-}"); end >= 0 {
+			block = block[:end]
+		}
+	}
+	var out []string
+	cur := -1
+	for _, line := range strings.Split(block, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.HasPrefix(line, ":") {
+			if i := strings.Index(line[1:], ":"); i >= 0 {
+				if line[1:1+i] == tag {
+					out = append(out, line[2+i:])
+					cur = len(out) - 1
+				} else {
+					cur = -1
+				}
+				continue
+			}
+		}
+		if cur >= 0 {
+			out[cur] += "\n" + line
+		}
+	}
+	return out
+}
+
 // firstAccountAndName splits an MT party field (":50K:/account\nNAME") into account and name.
 func firstAccountAndName(v string) (account, name string) {
 	lines := strings.Split(v, "\n")
@@ -111,16 +144,21 @@ func MT103ToPacs008(msg string) (iso20022.Request, error) {
 	if ref == "" {
 		ref = "MT-" + time.Now().UTC().Format("150405")
 	}
+	_, dbtrName := firstAccountAndName(f[tagOrdering])
+	_, cdtrName := firstAccountAndName(f[tagBeneficiary])
 	return iso20022.Request{
-		MsgId:      ref,
-		EndToEndId: ref,
-		Amount:     amount,
-		Currency:   ccy,
-		ValueDate:  date,
-		DebtorAcct: dbtrAcct,
-		CreditAcct: cdtrAcct,
-		DebtorBIC:  strings.TrimSpace(f[tagOrderingAg]),
-		CreditBIC:  strings.TrimSpace(f[tagAccountWith]),
+		MsgId:        ref,
+		EndToEndId:   ref,
+		ChargeBearer: chargeBearer(f["71A"]),
+		DebtorName:   orName(dbtrName, "ORDERING CUSTOMER"),
+		CreditorName: orName(cdtrName, "BENEFICIARY CUSTOMER"),
+		Amount:       amount,
+		Currency:     ccy,
+		ValueDate:    date,
+		DebtorAcct:   dbtrAcct,
+		CreditAcct:   cdtrAcct,
+		DebtorBIC:    strings.TrimSpace(f[tagOrderingAg]),
+		CreditBIC:    strings.TrimSpace(f[tagAccountWith]),
 	}, nil
 }
 
@@ -135,10 +173,8 @@ func Pacs008ToMT103(req iso20022.Request) (string, error) {
 	}
 	amount := strings.ReplaceAll(req.Amount, ".", ",") // dot -> SWIFT comma decimal
 	var b strings.Builder
-	b.WriteString("{1:F01" + bic11(req.DebtorBIC) + "0000000000}")
-	b.WriteString("{2:I103" + bic11(req.CreditBIC) + "N}")
-	b.WriteString("{4:\n")
-	fmt.Fprintf(&b, ":20:%s\n", req.EndToEndId)
+	header(&b, "103", req.DebtorBIC, req.CreditBIC)
+	fmt.Fprintf(&b, ":20:%s\n", ref16(req.EndToEndId))
 	b.WriteString(":23B:CRED\n")
 	fmt.Fprintf(&b, ":32A:%s%s%s\n", date, req.Currency, amount)
 	if req.DebtorBIC != "" {
@@ -149,9 +185,33 @@ func Pacs008ToMT103(req iso20022.Request) (string, error) {
 		fmt.Fprintf(&b, ":57A:%s\n", req.CreditBIC)
 	}
 	fmt.Fprintf(&b, ":59:/%s\nBENEFICIARY CUSTOMER\n", req.CreditAcct)
-	b.WriteString(":71A:SHA\n")
+	b.WriteString(":71A:" + detailsOfCharges(req.ChargeBearer) + "\n")
 	b.WriteString("-}")
 	return b.String(), nil
+}
+
+// chargeBearer maps MT field 71A (details of charges) to the ISO 20022 charge bearer: OUR is the
+// debtor's, BEN the creditor's, SHA shared. A missing 71A is shared.
+func chargeBearer(v string) string {
+	switch strings.TrimSpace(v) {
+	case "OUR":
+		return "DEBT"
+	case "BEN":
+		return "CRED"
+	}
+	return "SHAR"
+}
+
+// detailsOfCharges is the reverse: an ISO 20022 charge bearer as MT field 71A (SLEV, following the
+// service level, has no MT code and is written as SHA).
+func detailsOfCharges(cb string) string {
+	switch cb {
+	case "DEBT":
+		return "OUR"
+	case "CRED":
+		return "BEN"
+	}
+	return "SHA"
 }
 
 // bic11 pads an 8-char BIC to 11 with "XXX" (branch), as SWIFT headers require 11.
