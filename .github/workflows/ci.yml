@@ -35,3 +35,35 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml }
       - run: cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
+
+  # The independent oracles: Python libraries prova must agree with. The card vectors are regenerated
+  # fresh (PIN block formats 3 and 4 carry random fill) and the Go tests rerun against them; the
+  # ISO 8583 and schema corpora must regenerate byte for byte.
+  oracles:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.10' }
+      - name: Oracles
+        run: |
+          python -m venv /tmp/oracle
+          /tmp/oracle/bin/pip install -q psec==1.3.0 pyemv==1.5.0 pyiso8583==4.0.1 mt-940==4.30.0 pycryptodome cryptography lxml
+          # pythales asks for pycrypto, which no longer builds; pycryptodome provides the same Crypto package.
+          /tmp/oracle/bin/pip install -q --no-deps pythales==0.74 pynblock==0.26 tracetools==1.26 || true
+          /tmp/oracle/bin/python -c "import pythales.hsm, pynblock.tools, psec, pyemv, iso8583, mt940, lxml"
+      - name: HSM client against pythales, MT940 against mt-940
+        run: PROVA_TEST_PYTHALES=/tmp/oracle/bin/python PROVA_TEST_MT940=/tmp/oracle/bin/python go test -count=1 -run 'Pythales|MT940AgreesWithParser' -v ./internal/hsm ./internal/mt
+      - name: ISO 8583 dialects and the schema corpus regenerate unchanged
+        run: |
+          (cd internal/iso8583 && /tmp/oracle/bin/python oracle.py)
+          PROVA_DUMP_OUTBOUND=1 go test -count=1 -run TestDumpOutbound ./internal/validate
+          (cd internal/validate && /tmp/oracle/bin/python gen.py)
+          git diff --exit-code -- internal/iso8583 internal/validate
+      - name: Fresh card-security vectors
+        run: |
+          (cd internal/cardcrypto && /tmp/oracle/bin/python oracle.py)
+          go test -count=1 ./internal/cardcrypto ./internal/qcasebook ./internal/verdict
