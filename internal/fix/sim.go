@@ -61,7 +61,10 @@ func (s *Sim) MarkSeen(id string) {
 // OrdRejReason and human text.
 func (s *Sim) Decide(order map[int]string) (fill bool, rejReason, text string) {
 	notional := notionalMinor(order[TagPrice], order[TagOrderQty])
-	qty, _ := strconv.ParseInt(order[TagOrderQty], 10, 64)
+	qty, err := strconv.ParseInt(order[TagOrderQty], 10, 64)
+	if err != nil {
+		qty = 0 // not a whole number that fits: an incorrect quantity
+	}
 	sym := order[TagSymbol]
 	s.mu.Lock()
 	power := s.Buying[order[TagAccount]]

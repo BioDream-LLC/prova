@@ -9,6 +9,8 @@ func builtinScenarios() []Scenario {
 	out = append(out, iso20022Scenarios()...)
 	out = append(out, iso8583Scenarios()...)
 	out = append(out, cardSecurityScenarios()...)
+	out = append(out, schemeScenarios()...)
+	out = append(out, generatedScenarios()...)
 	out = append(out, fixScenarios()...)
 	return out
 }

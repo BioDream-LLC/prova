@@ -7,12 +7,14 @@ package sims
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/biodream-llc/prova/internal/cardcrypto"
 	"github.com/biodream-llc/prova/internal/fix"
 	"github.com/biodream-llc/prova/internal/iso20022"
 	"github.com/biodream-llc/prova/internal/iso8583"
 	"github.com/biodream-llc/prova/internal/testkeys"
+	"github.com/biodream-llc/prova/internal/validate"
 )
 
 // Target is a running simulated target.
@@ -31,6 +33,8 @@ type Spec struct {
 var Specs = []Spec{
 	{"cbpr-uat", "iso20022", "compliant reference host", nil},
 	{"switch-sim", "iso20022", "accept-all (known defect)", nil},
+	{"sepa-host", "iso20022", "compliant SEPA host: screens every message against the EPC rules (SCT and SCT Inst)", nil},
+	{"fednow-host", "iso20022", "compliant FedNow participant: US dollars, routing numbers, the $1,000,000 network limit", nil},
 	{"card-switch", "iso8583", "compliant card switch", nil},
 	{"card-switch-bug", "iso8583", "approves everything (known defect)", nil},
 	{"visa-switch", "iso8583", "compliant switch, Visa-style dialect (BCD, EBCDIC, binary bitmaps, 22-byte header)", map[string]string{"dialect": "visa"}},
@@ -43,6 +47,9 @@ var Specs = []Spec{
 
 // The seeded state the shipped scenarios rely on.
 const (
+	// BusinessDate is the simulated card switch's processing date.
+	BusinessDate = "2026-10-15"
+
 	IBANDebtor   = "DE89370400440532013000"
 	IBANCreditor = "FR1420041010050500013M02606"
 )
@@ -52,10 +59,13 @@ func paymentHost(mode string) *iso20022.Sim {
 		Mode: mode,
 		Ledger: map[string]int64{
 			"ACC-EUR-1": 14200, IBANDebtor: 14200,
+			"ACC-JPY-1": 100000000, "ACC-USD-1": 100000, "ACC-GBP-1": 100000, "ACC-BHD-1": 100000, "ACC-KWD-1": 100000, "ACC-CHF-1": 100000,
 			"ACC-EUR-CLOSED": 100000, "ACC-EUR-BLOCKED": 100000, "ACC-EUR-LTD": 1000000,
 		},
 		AccountStatus: map[string]string{"ACC-EUR-CLOSED": "closed", "ACC-EUR-BLOCKED": "blocked"},
-		Limit:         map[string]int64{"ACC-EUR-LTD": 50000},
+		// Accounts held in other currencies, for the currency-exponent scenarios.
+		AccountCcy: map[string]string{"ACC-JPY-1": "JPY", "ACC-USD-1": "USD", "ACC-GBP-1": "GBP", "ACC-BHD-1": "BHD", "ACC-KWD-1": "KWD", "ACC-CHF-1": "CHF"},
+		Limit:      map[string]int64{"ACC-EUR-LTD": 50000},
 		Originals: map[string]iso20022.Original{
 			"E2E-ORIG-SETTLED":  {Amount: 9000, Status: "ACSC"},
 			"E2E-ORIG-PENDING":  {Amount: 9000, Status: "PDNG"},
@@ -95,11 +105,15 @@ func cardSwitch(mode string, dialect iso8583.Dialect) *iso8583.Sim {
 	s := &iso8583.Sim{
 		Mode:    mode,
 		Dialect: dialect,
-		Keys:    issuerKeys(),
+		// The switch's business date: cards are checked for expiry against it, so the expiry scenarios
+		// mean the same whenever they run.
+		ProcessingDate: BusinessDate,
+		Keys:           issuerKeys(),
 		Ledger: map[string]int64{
 			"4111111111111111": 14200, "5555555555554444": 100000,
 			"4000000000000002": 100000, "4000000000000010": 100000,
 			"4012888888881881": 14200, "5105105105105100": 14200,
+			"4222222222222": 14200, "378282246310005": 14200, "6011000990139424": 14200, "6011000000000000001": 14200,
 		},
 		CardStatus: map[string]string{"4000000000000002": "lost", "4000000000000010": "stolen"},
 		Limit:      map[string]int64{"5555555555554444": 50000},
@@ -129,6 +143,45 @@ func venue(mode string) *fix.Sim {
 	return s
 }
 
+// schemeHost is a payment host that screens every message against a scheme profile before deciding
+// it, refusing a violation with the ISO 20022 reason code the rule maps to.
+func schemeHost(profile, ccy string, ledger map[string]int64, codes map[string]string) *iso20022.Sim {
+	s := paymentHost("")
+	s.BookCcy = ccy
+	for k, v := range ledger {
+		s.Ledger[k] = v
+	}
+	s.Check = func(raw []byte) string {
+		rep, err := validate.Message(raw, profile)
+		if err != nil {
+			return "FF01"
+		}
+		for _, f := range rep.Findings {
+			if f.Severity != validate.Error {
+				continue
+			}
+			for prefix, code := range codes {
+				if strings.HasPrefix(f.Rule, prefix) {
+					return code
+				}
+			}
+			return "FF01" // invalid file format: any other schema or profile error
+		}
+		return ""
+	}
+	return s
+}
+
+func sepaHost() *iso20022.Sim {
+	return schemeHost("SEPA", "EUR", map[string]int64{IBANDebtor: 200000000000},
+		map[string]string{"sepa.currency": "AM03", "sepa.amount": "AM02", "sepa.iban": "AC01"})
+}
+
+func fednowHost() *iso20022.Sim {
+	return schemeHost("FedNow", "USD", map[string]int64{"1234567890": 500000000},
+		map[string]string{"fednow.currency": "AM03", "fednow.limit": "AM02", "fednow.agent": "RC01", "fednow.future": "DT01"})
+}
+
 type server interface {
 	Serve(ctx context.Context, addr string) (string, error)
 }
@@ -139,6 +192,10 @@ func build(name string) server {
 		return paymentHost("")
 	case "switch-sim":
 		return paymentHost("accept-all")
+	case "sepa-host":
+		return sepaHost()
+	case "fednow-host":
+		return fednowHost()
 	case "card-switch":
 		return cardSwitch("", iso8583.Generic)
 	case "card-switch-bug":

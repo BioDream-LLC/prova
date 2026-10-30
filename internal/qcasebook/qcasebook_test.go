@@ -228,6 +228,8 @@ func TestFieldValidationAgrees(t *testing.T) {
 		{"MAC": "A1B2C3D4E5F60718"}, {"MAC": "A1B2C3D4E5F60718A1B2C3D4E5F60718"}, {"MAC": "A1B2C3"}, {"MAC": "A1B2C3D4E5F6071X"},
 		{"ICCData": "9F2608A1B2C3D4E5F60718"}, {"ICCData": "9F270180"}, {"ICCData": "9F2608A1B2C3D4E5F607"}, {"ICCData": "ZZ"},
 		{"POSEntryMode": "051"}, {"POSEntryMode": "051", "ICCData": "9F2608A1B2C3D4E5F60718"}, {"POSEntryMode": "010"},
+		{"DebtorRTN": "011000015"}, {"DebtorRTN": "011000016"}, {"CreditRTN": "021000021"}, {"CreditRTN": "02100002"},
+		{"CreditRTN": "02100002X"}, {"DebtorRTN": "000000000"}, {"PINBlock": "0412ABCDEF0123450412ABCDEF012345"},
 	}
 	for _, r := range reqs {
 		goInvalid := len(verdict.FieldProblems(r)) > 0

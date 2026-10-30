@@ -41,6 +41,11 @@ func invalidInstruction(r map[string]string) bool {
 	if v := strings.TrimSpace(r["PAN"]); v != "" && !luhnOK(v) {
 		return true
 	}
+	for _, k := range []string{"DebtorRTN", "CreditRTN"} {
+		if v := strings.TrimSpace(r[k]); v != "" && !rtnOK(v) {
+			return true
+		}
+	}
 	if v, ok := r["OrderQty"]; ok && !positiveInteger(strings.TrimSpace(v)) {
 		return true
 	}
@@ -239,6 +244,22 @@ func ibanOK(iban string) bool {
 		}
 	}
 	return rem == 1
+}
+
+// rtnOK sums the three groups of an ABA routing number (digits 1/4/7, 2/5/8 and 3/6/9) with their
+// weights 3, 7 and 1, and needs a multiple of ten.
+func rtnOK(r string) bool {
+	if len(r) != 9 {
+		return false
+	}
+	g := [3]int{}
+	for i := 0; i < 9; i++ {
+		if !isDigit(r[i]) {
+			return false
+		}
+		g[i%3] += int(r[i] - '0')
+	}
+	return (3*g[0]+7*g[1]+g[2])%10 == 0
 }
 
 // luhnOK doubles every second digit from the right, using a lookup table for the doubled digit sum.

@@ -47,6 +47,11 @@ func FieldProblems(req map[string]string) []string {
 	if v := strings.TrimSpace(req["PAN"]); v != "" && !panValid(v) {
 		out = append(out, "card number fails the Luhn check")
 	}
+	for _, k := range []string{"DebtorRTN", "CreditRTN"} {
+		if v := strings.TrimSpace(req[k]); v != "" && !routingValid(v) {
+			out = append(out, k+" "+v+" is not a valid ABA routing number")
+		}
+	}
 	if v, ok := req["OrderQty"]; ok {
 		q := strings.TrimSpace(v)
 		if n, err := strconv.ParseInt(q, 10, 64); err != nil || n <= 0 || len(strings.Map(keepDigits, q)) != len(q) || len(q) > 18 {
@@ -259,6 +264,20 @@ func ibanValid(iban string) bool {
 	}
 	n, ok := new(big.Int).SetString(num.String(), 10)
 	return ok && new(big.Int).Mod(n, big.NewInt(97)).Int64() == 1
+}
+
+// routingValid checks a US ABA routing transit number: nine digits whose weighted sum (weights 3, 7,
+// 1 repeating) is a multiple of ten.
+func routingValid(rtn string) bool {
+	if len(rtn) != 9 || len(strings.Map(keepDigits, rtn)) != 9 {
+		return false
+	}
+	weights := [9]int{3, 7, 1, 3, 7, 1, 3, 7, 1}
+	sum := 0
+	for i, c := range rtn {
+		sum += weights[i] * int(c-'0')
+	}
+	return sum%10 == 0
 }
 
 // panValid checks a card number is 12 to 19 digits and satisfies the Luhn checksum.

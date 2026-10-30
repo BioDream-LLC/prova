@@ -46,6 +46,11 @@ type Sim struct {
 	Mandates map[string]Mandate
 	// Entries is how many booked entries an account's report lists (camt.052/053/054).
 	Entries map[string]int
+	// AccountCcy is the currency an account is held in when it is not the host's BookCcy.
+	AccountCcy map[string]string
+	// Check, when set, screens every incoming message before it is decided, as a scheme's own rules
+	// would (SEPA, FedNow): a non-empty reason code refuses the message with that code.
+	Check func(raw []byte) string
 
 	mu   sync.Mutex
 	seen map[string]bool // EndToEndIds the tester has declared already processed
@@ -192,7 +197,7 @@ func (s *Sim) Decide(req Request) Status {
 		return reject("AC04")
 	case status == "blocked":
 		return reject("AC06")
-	case req.Currency != "" && !strings.EqualFold(req.Currency, bookCcy):
+	case req.Currency != "" && !strings.EqualFold(req.Currency, orDefault(s.AccountCcy[req.DebtorAcct], bookCcy)):
 		return reject("AM03") // not allowed currency
 	case dup:
 		return reject("AM05") // duplication
@@ -240,7 +245,7 @@ func (s *Sim) handle(c net.Conn) {
 		if err != nil {
 			return
 		}
-		out, err := s.Reply(req)
+		out, err := s.ReplyRaw(raw, req)
 		if err != nil {
 			return
 		}
@@ -269,6 +274,31 @@ func minorUnits(s string) int64 {
 
 // Reply is the wire reply the host gives to a request.
 func (s *Sim) Reply(req Request) ([]byte, error) { return EncodeStatus(s.Decide(req)) }
+
+// ReplyRaw is the reply to a message as received: screened by Check first, when the host has one.
+func (s *Sim) ReplyRaw(raw []byte, req Request) ([]byte, error) {
+	if s.Check != nil && s.Mode == "" {
+		if code := s.Check(raw); code != "" {
+			return EncodeStatus(s.refuse(req, code))
+		}
+	}
+	return s.Reply(req)
+}
+
+// refuse is the reply that rejects a request with a reason code, in the reply its message takes.
+func (s *Sim) refuse(req Request, code string) Status {
+	st := Status{Kind: KindPacs002, MsgId: "RSP-" + req.MsgId, OrgnlMsgId: req.MsgId, OrgnlMsgNmId: nameOf(req.Kind),
+		OrgnlEndToEndId: req.EndToEndId, TxSts: "RJCT", ReasonCode: code}
+	switch req.Kind {
+	case KindPain001:
+		st.Kind = KindPain002
+	case KindCamt056:
+		st.Kind, st.TxSts, st.OrgnlEndToEndId = KindCamt029, "RJCR", req.OrgnlEndToEndId
+	case KindCamt060:
+		st.Kind = KindAdmi002
+	}
+	return st
+}
 
 // report answers an account reporting request (camt.060) with the report it asks for, or with an
 // admi.002 message reject (AC01) when the host keeps no such account. The defective host answers for

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -228,8 +229,87 @@ func percentile(xs []float64, p int) float64 {
 	return s[idx]
 }
 
+// pick lists the shipped scenarios whose ids start with any of the prefixes, in shipped order, leaving
+// out the ids in skip.
+func pick(prefixes []string, skip ...string) []string {
+	no := map[string]bool{}
+	for _, s := range skip {
+		no[s] = true
+	}
+	var out []string
+	for _, sc := range builtinScenarios() {
+		for _, p := range prefixes {
+			if strings.HasPrefix(sc.ID, p) && !no[sc.ID] {
+				out = append(out, sc.ID)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// cardPack is a card-scheme style pack for a dialect: the card controls, reversals and network
+// management, the balance boundaries and the card cryptography, all in the dialect's encoding. The
+// malformed PIN-block and MAC scenarios are left out: a binary dialect cannot carry a 4-byte PIN block.
+func cardPack(dialect string) []string {
+	ids := []string{"iso8583-over-limit", "iso8583-within-limit", "iso8583-exact-balance", "iso8583-invalid-pan", "iso8583-expired-card",
+		"iso8583-lost-card", "iso8583-stolen-card", "iso8583-duplicate", "iso8583-zero-amount", "iso8583-over-card-limit",
+		"iso8583-0200-over-balance", "iso8583-0200-within-balance", "iso8583-reversal-known", "iso8583-reversal-unknown",
+		"iso8583-reversal-over-original", "iso8583-echo", "iso8583-chip-no-emv", "iso8583-chip-no-arqc"}
+	return append(ids, pick([]string{dialect + "-"})...)
+}
+
 // builtinSuites are the shipped regression and certification-style packs.
 func builtinSuites() []Suite {
+	return append(coreSuites(), []Suite{
+		{ID: "crypto-iso8583", Name: "ISO 8583 card cryptography", Target: "card-switch",
+			Description: "PIN blocks in ISO 9564 formats 0, 1, 3 and 4, retail MACs and AES-CMACs, and Visa CVN 10, Visa CVN 18 and Mastercard CVN 16 cryptograms: each right, wrong, counterfeit or altered, verified under the published test keys.",
+			Scenarios: append(pick([]string{"generic-pin", "generic-mac", "generic-arqc"}), "iso8583-chip-valid", "iso8583-pin-wrong", "iso8583-pin-format4",
+				"iso8583-pin-format4-wrong", "iso8583-mac-wrong", "iso8583-mac-cmac", "iso8583-arqc-wrong", "iso8583-arqc-amount-altered", "iso8583-arqc-cvn18", "iso8583-arqc-cvn16")},
+		{ID: "certification-visa-style", Name: "Card pack, Visa-style dialect", Target: "visa-switch",
+			Description: "The card controls, reversals, network management, balance boundaries and card cryptography in the Visa-style dialect (BCD, EBCDIC, binary bitmaps and fields, 22-byte header), where a cryptogram failure is DE39=82. It is prova's own pack, built from public descriptions; Visa's certification test cases are Visa's.",
+			Scenarios:   cardPack("visa")},
+		{ID: "certification-mastercard-style", Name: "Card pack, Mastercard-style dialect", Target: "mc-switch",
+			Description: "The same pack in the Mastercard-style dialect (EBCDIC, binary bitmaps and fields), where a cryptogram failure is DE39=88. It is prova's own pack; Mastercard's certification test cases are Mastercard's.",
+			Scenarios:   cardPack("mc")},
+		{ID: "cards-iso8583", Name: "ISO 8583 card numbers, expiry and boundaries", Target: "card-switch",
+			Description: "Card numbers of 13, 15, 16 and 19 digits with and without a valid Luhn digit, cards either side of their expiry month, and the balance boundary for authorisations and purchases.",
+			Scenarios:   pick([]string{"pan-", "expiry-", "generic-0100", "generic-0200"})},
+		{ID: "direct-debits-iso20022", Name: "ISO 20022 direct debits", Target: "cbpr-uat",
+			Description: "pacs.003 customer direct debits under valid, missing, revoked and misapplied mandates (MD01), over balance (AM04) and from a closed account (AC04); pacs.010 bank direct debits; and the one-cent balance boundary for both.",
+			Scenarios:   pick([]string{"pacs003-", "pacs010-", "boundary-pacs003", "boundary-pacs010"})},
+		{ID: "reporting-iso20022", Name: "ISO 20022 account reporting", Target: "cbpr-uat",
+			Description: "camt.060 account reporting requests answered by a camt.053 statement, a camt.052 intraday report and a camt.054 notification, each checked for the account, balance and entries the host holds; an unknown account must be refused with admi.002.",
+			Scenarios:   pick([]string{"camt060-"})},
+		{ID: "identifiers-iso20022", Name: "ISO 20022 identifiers and amounts", Target: "cbpr-uat",
+			Description: "Twenty countries' IBANs with right and wrong check digits, well-formed and malformed BICs, each currency exponent (JPY 0, USD/GBP/CHF 2, BHD/KWD 3) with one decimal too many, and the one-cent balance boundary for credit transfers and initiations.",
+			Scenarios:   pick([]string{"iban-", "bic-", "currency-", "boundary-pacs008", "boundary-pacs009", "boundary-pain001"})},
+		{ID: "certification-sepa", Name: "SEPA readiness pack", Target: "sepa-host",
+			Description: "SEPA Credit Transfer and SEPA Instant against a host that screens every message against the EPC rules: compliant transfers, a non-euro instruction (AM03), the scheme's maximum amount and one cent over it (AM02), and a bad IBAN (AC01). prova's own pack; the EPC's test cases are the EPC's.",
+			Scenarios:   pick([]string{"sepa-"})},
+		{ID: "certification-fednow", Name: "FedNow readiness pack", Target: "fednow-host",
+			Description: "Customer credit transfers against a FedNow participant: compliant, at and over the $1,000,000 network limit (AM02), in euro (AM03), and to a routing number that fails its check digit (RC01). prova's own pack; the Federal Reserve's certification cases are its own.",
+			Scenarios:   pick([]string{"fednow-"})},
+		{ID: "sessions-fix", Name: "FIX session rules", Target: "fix-venue",
+			Description: "The session rules a venue must enforce: a MsgSeqNum too low (Logout), a possible duplicate without OrigSendingTime (Reject 373=1), a resend of a processed order (ignored, not filled twice), a wrong TargetCompID (Reject 373=9) and a garbled CheckSum (ignored).",
+			Scenarios:   pick([]string{"fix-session-"})},
+		{ID: "lifecycle-mass-cancel-fix", Name: "FIX order mass cancel", Target: "fix-venue",
+			Description: "OrderMassCancelRequest for every open order and for one instrument, each checked for the number of orders cancelled, and for an instrument the venue does not list (532=1).",
+			Scenarios:   pick([]string{"fix-mass-cancel-"})},
+		{ID: "fields-fix", Name: "FIX order fields", Target: "fix-venue",
+			Description: "Order quantities that are negative, fractional or too large (OrdRejReason=13), and limit prices that are zero, negative or not numbers.",
+			Scenarios:   pick([]string{"fix-qty-", "fix-price-", "fix-zero-quantity"})},
+		{ID: "regression-fix42", Name: "FIX 4.2 regression", Target: "fix42-venue",
+			Description: "The order controls, the order lifecycle and the session rules over a FIX 4.2 session, where a fill is ExecType=2 with ExecTransType=0 and an OrderMassCancelRequest is not a message (Reject 373=11).",
+			Scenarios:   pick([]string{"fix42-"})},
+		{ID: "regression-fix50", Name: "FIX 5.0 SP2 regression", Target: "fix50-venue",
+			Description: "The order controls, the order lifecycle, the session rules and the mass cancel over FIXT.1.1 with DefaultApplVerID=9 (FIX 5.0 SP2).",
+			Scenarios:   pick([]string{"fix50-"})},
+	}...)
+}
+
+// coreSuites are the packs prova shipped first.
+func coreSuites() []Suite {
 	return []Suite{
 		{
 			ID: "regression-iso20022", Name: "ISO 20022 regression", Target: "cbpr-uat",
