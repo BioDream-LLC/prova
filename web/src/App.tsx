@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import {
   Activity as ActivityIcon, BarChart3, BookOpen, ExternalLink, FileCode2, History, LayoutDashboard, Share2, Table2,
-  ListChecks, ArrowRightLeft, LogOut, Users as UsersIcon, ShieldCheck, Radio,
+  ListChecks, ArrowRightLeft, LogOut, Users as UsersIcon, ShieldCheck, Radio, KeyRound,
 } from 'lucide-react'
 import { Dashboard } from './Dashboard'
 import { Scenarios } from './Scenarios'
@@ -12,6 +12,7 @@ import { Proof } from './Proof'
 import { Transform } from './Transform'
 import { Validate } from './Validate'
 import { Counterparty } from './Counterparty'
+import { CardSecurity } from './CardSecurity'
 import { Reports } from './Reports'
 import { Activity } from './Activity'
 import { Login } from './Login'
@@ -26,6 +27,7 @@ const nav = [
   { to: '/messages', label: 'Messages', icon: Table2 },
   { to: '/validate', label: 'Validate', icon: ShieldCheck },
   { to: '/transform', label: 'Transform', icon: ArrowRightLeft },
+  { to: '/card-security', label: 'Card security', icon: KeyRound },
   { to: '/counterparty', label: 'Counterparty', icon: Radio },
   { to: '/proof', label: 'Proof', icon: Share2 },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
@@ -182,6 +184,7 @@ export function App() {
           <Route path="/validate" element={<Validate />} />
           <Route path="/transform" element={<Transform />} />
           <Route path="/counterparty" element={<Counterparty />} />
+          <Route path="/card-security" element={<CardSecurity />} />
           <Route path="/proof" element={<Proof />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={me.role === 'admin' ? <Users /> : <Navigate to="/" replace />} />

@@ -130,14 +130,18 @@ func public(path string) bool {
 	return !strings.HasPrefix(path, "/api/")
 }
 
+// readOnlyPOST are the POST endpoints that only compute: they store nothing and send nothing.
+var readOnlyPOST = map[string]bool{"/api/validate": true, "/api/transform": true, "/api/counterparty": true, "/api/cardcrypto": true}
+
 // need is the role a request needs.
 func need(r *http.Request) auth.Role {
 	if strings.HasPrefix(r.URL.Path, "/api/users") || r.URL.Path == "/api/activity" {
 		return auth.Admin
 	}
-	// /api/validate, /api/counterparty and /api/cardcrypto are POSTs but change nothing — they compute
-	// from the body and return a result — so a viewer (including the public demonstration) may use them.
-	if r.URL.Path == "/api/validate" || r.URL.Path == "/api/counterparty" || r.URL.Path == "/api/cardcrypto" {
+	// /api/validate, /api/transform, /api/counterparty and /api/cardcrypto are POSTs but change nothing —
+	// they compute from the body and return a result — so a viewer (including the public demonstration)
+	// may use them.
+	if readOnlyPOST[r.URL.Path] {
 		return auth.Viewer
 	}
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {

@@ -58,8 +58,12 @@ export function Scenarios() {
     [targets, selected],
   )
   useEffect(() => {
+    // A scenario written for one target (a dialect, a FIX version, a scheme host) starts on it.
+    const preferred = selected?.target && usable.some((t) => t.name === selected.target) ? selected.target : ''
+    if (preferred && preferred !== target) { setTarget(preferred); return }
     if (usable.length && !usable.some((t) => t.name === target)) setTarget(usable[0].name)
-  }, [usable, target])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usable, selected?.id])
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: scenarios.length }
     for (const s of scenarios) c[s.protocol] = (c[s.protocol] ?? 0) + 1
@@ -187,6 +191,7 @@ export function Scenarios() {
             <span className="flex gap-1.5">
               {selected?.message && <Pill>{selected.message}</Pill>}
               <Pill>{selected?.protocol}</Pill>
+              {selected?.target && <Pill>written for {selected.target}</Pill>}
             </span>
           </div>
           {selected?.description && (

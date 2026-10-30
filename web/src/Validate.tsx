@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ShieldCheck, ShieldAlert, Download, CheckCircle2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ShieldCheck, ShieldAlert, Download, CheckCircle2, FileUp, X } from 'lucide-react'
 import { Page, Card, Pill } from './ui'
-import { api, type ValidationReport, type ValidationExample, type Severity } from './api'
-
-const PROFILES = ['', 'CBPR+'] as const
+import { api, type ValidationReport, type ValidationExample, type Severity, type Profile } from './api'
 
 const sevTone: Record<Severity, string> = {
   error: 'text-fail ring-fail/30 bg-fail/10',
@@ -13,8 +11,11 @@ const sevTone: Record<Severity, string> = {
 
 export function Validate() {
   const [examples, setExamples] = useState<ValidationExample[]>([])
+  const [profiles, setProfiles] = useState<Profile[]>([])
   const [message, setMessage] = useState('')
   const [profile, setProfile] = useState<string>('CBPR+')
+  const [guideline, setGuideline] = useState<{ name: string; xsd: string }>()
+  const fileRef = useRef<HTMLInputElement>(null)
   const [report, setReport] = useState<ValidationReport>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -25,13 +26,31 @@ export function Validate() {
       const first = ex.find((e) => e.name === 'pacs.008-valid') ?? ex[0]
       if (first) setMessage(first.xml)
     }).catch((e) => setError(String(e)))
+    api.validateProfiles().then((p) => setProfiles(p.profiles)).catch(() => undefined)
   }, [])
+
+  // Choosing an example picks the profile it was written for.
+  const loadExample = (name: string) => {
+    const ex = examples.find((x) => x.name === name)
+    if (!ex) return
+    setMessage(ex.xml)
+    if (name.startsWith('sepa-inst')) setProfile('SEPA-Inst')
+    else if (name.startsWith('sepa')) setProfile('SEPA')
+    else if (name.startsWith('fednow')) setProfile('FedNow')
+    else if (name.startsWith('pacs.008') || name.startsWith('pacs.009')) setProfile('CBPR+')
+  }
+
+  const pickGuideline = async (f: File | undefined) => {
+    if (!f) return
+    if (f.size > 8 << 20) { setError('the usage-guideline schema is larger than 8 MB'); return }
+    setGuideline({ name: f.name, xsd: await f.text() })
+  }
 
   const validate = async () => {
     setBusy(true)
     setError(undefined)
     try {
-      setReport(await api.validate(message, profile))
+      setReport(await api.validate(message, profile, guideline?.xsd ?? ''))
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
       setReport(undefined)
@@ -42,7 +61,7 @@ export function Validate() {
 
   const downloadSarif = () => {
     const url = `/api/validate?format=sarif`
-    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, profile }) })
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, profile, schema: guideline?.xsd ?? '' }) })
       .then((r) => r.blob())
       .then((b) => {
         const a = document.createElement('a')
@@ -64,7 +83,7 @@ export function Validate() {
   return (
     <Page
       title="Validate"
-      subtitle="Check an ISO 20022 message against the official schema and the CBPR+ usage-guideline rules — every finding names the rule, the field and the fix"
+      subtitle="Check an ISO 20022 message against the official schema, a usage-guideline profile (CBPR+, SEPA, SEPA Inst, FedNow) and your own usage-guideline schema — every finding names the rule, the field and the fix"
       actions={<Pill>schema + profile</Pill>}
     >
       <div className="grid grid-cols-2 gap-4">
@@ -74,7 +93,7 @@ export function Validate() {
             <select
               aria-label="Example message"
               className="ml-auto rounded-md border border-line bg-surface2 px-2 py-1 text-xs text-text"
-              onChange={(e) => { const ex = examples.find((x) => x.name === e.target.value); if (ex) setMessage(ex.xml) }}
+              onChange={(e) => loadExample(e.target.value)}
               defaultValue=""
             >
               <option value="" disabled>load an example…</option>
@@ -86,8 +105,22 @@ export function Validate() {
               value={profile}
               onChange={(e) => setProfile(e.target.value)}
             >
-              {PROFILES.map((p) => <option key={p} value={p}>{p === '' ? 'schema only' : p}</option>)}
+              {(profiles.length ? profiles : [{ id: '', name: 'Schema only' }, { id: 'CBPR+', name: 'CBPR+' }] as Profile[]).map((p) =>
+                <option key={p.id} value={p.id} title={p.description}>{p.name}</option>)}
             </select>
+            <input ref={fileRef} type="file" accept=".xsd,.xml" className="hidden" aria-label="Usage-guideline schema file"
+              onChange={(e) => { pickGuideline(e.target.files?.[0]); e.target.value = '' }} />
+            {guideline ? (
+              <span className="flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-2 py-1 text-xs text-text" title="Also validating against this usage-guideline schema">
+                <FileUp className="h-3.5 w-3.5 text-accent" /> {guideline.name}
+                <button aria-label="Remove the usage-guideline schema" onClick={() => setGuideline(undefined)} className="text-muted hover:text-text"><X className="h-3 w-3" /></button>
+              </span>
+            ) : (
+              <button onClick={() => fileRef.current?.click()} title="Add a usage-guideline schema: a restricted XSD such as a MyStandards export"
+                className="flex items-center gap-1 rounded-md border border-line bg-surface2 px-2 py-1 text-xs text-muted hover:text-text">
+                <FileUp className="h-3.5 w-3.5" /> guideline XSD
+              </button>
+            )}
             <button
               onClick={validate}
               disabled={busy || !message}
@@ -96,6 +129,12 @@ export function Validate() {
               {busy ? 'Validating…' : 'Validate'}
             </button>
           </div>
+          {profile && profiles.find((p) => p.id === profile) && (
+            <div className="border-b border-line px-4 py-2 text-[11px] leading-snug text-muted">
+              <span className="text-faint">{profiles.find((p) => p.id === profile)!.messages}: </span>
+              {profiles.find((p) => p.id === profile)!.description}
+            </div>
+          )}
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
@@ -112,6 +151,7 @@ export function Validate() {
               <span className="flex items-center gap-2 text-xs text-muted">
                 <span>{report.kind || 'unknown'}</span>
                 {report.schema ? <Pill>schema applied</Pill> : <span className="text-accent2">no schema</span>}
+                {report.guideline && <Pill>guideline schema</Pill>}
                 {report.profile && <Pill>{report.profile}</Pill>}
               </span>
             )}

@@ -15,6 +15,7 @@ export interface Scenario {
   request: Record<string, string>
   context: Record<string, string>
   expect: string
+  target?: string
 }
 
 export interface Target {
@@ -22,6 +23,7 @@ export interface Target {
   protocol: string
   addr: string
   note?: string
+  params?: Record<string, string>
 }
 
 export interface Message {
@@ -142,7 +144,30 @@ export interface LoadResult {
   max: number
   errors: number
   outcomes: Record<string, number>
+  mean?: number
+  rate?: number
+  firstError?: string
+  timeline?: { at: number; sent: number; errors: number; p95: number }[]
 }
+
+export interface ImportReport { read: number; kept: number; skipped: number; kinds: Record<string, number>; masked: boolean; notes?: string[] }
+export interface ReplayResult { load: LoadResult; import?: ImportReport; recordings: number }
+export interface ReplayRequest {
+  target: string; cassette?: string; capture?: string; protocol?: string; dialect?: string; mask?: boolean
+  n?: number; concurrency?: number; rate?: number; speed?: number
+}
+
+export interface TransformResult { result: string; format: string; from: string; to: string; notes?: string[] }
+export interface Pair { mt: string; mx: string; name: string }
+
+export interface Profile { id: string; name: string; description: string; messages: string }
+
+export interface TestKeys {
+  pinKey: string; pinKeyAES: string; macKey: string; macKeyAES: string; imk: string
+  cards: { PAN: string; PIN: string; Cryptogram: string }[]; versions: string[]
+}
+export interface HSMStatus { configured: boolean; addr?: string; lmkCheck?: string; firmware?: string; error?: string }
+export type CryptoRequest = Record<string, string>
 
 async function postJSON<T>(url: string, body: unknown, method = 'POST'): Promise<T> {
   const res = await fetch(url, {
@@ -211,14 +236,20 @@ export const api = {
   start: (scenario: string, target: string) => postJSON<Run>('/api/runs', { scenario, target }),
   runScript: (script: string, target: string, lang = 'js') => postJSON<Run>('/api/runs', { script, lang, target }),
   runSuite: (suite: string, target = '') => postJSON<SuiteResult>('/api/suites/run', { suite, target }),
-  load: (scenario: string, target: string, n: number, concurrency: number) =>
-    postJSON<LoadResult>('/api/load', { scenario, target, n, concurrency }),
+  load: (scenario: string, target: string, n: number, concurrency: number, rate = 0, seconds = 0) =>
+    postJSON<LoadResult>('/api/load', { scenario, target, n, concurrency, rate, seconds }),
+  replay: (req: ReplayRequest) => postJSON<ReplayResult>('/api/load/replay', req),
   transform: (direction: 'mt2mx' | 'mx2mt', payload: string) =>
-    postJSON<{ result: string; format: string }>('/api/transform', { direction, payload }),
+    postJSON<TransformResult>('/api/transform', { direction, payload }),
+  transformPairs: () => getJSON<{ pairs: Pair[]; samples: Record<string, string> }>('/api/transform/pairs'),
+  validateProfiles: () => getJSON<{ profiles: Profile[]; schemas: string[] }>('/api/validate/profiles'),
+  testKeys: () => getJSON<TestKeys>('/api/cardcrypto/testkeys'),
+  cardCrypto: (req: CryptoRequest) => postJSON<Record<string, string | number | boolean>>('/api/cardcrypto', req),
+  hsm: () => getJSON<HSMStatus>('/api/hsm'),
   report: (days: number) => getJSON<Report>(`/api/reports/summary?days=${days}`),
   validateExamples: () => getJSON<ValidationExample[]>('/api/validate/examples'),
-  validate: (message: string, profile: string) =>
-    postJSON<ValidationReport>('/api/validate', { message, profile }),
+  validate: (message: string, profile: string, schema = '') =>
+    postJSON<ValidationReport>('/api/validate', { message, profile, schema }),
   counterparty: (protocol: string, message: string, decision: string, reason: string) =>
     postJSON<{ raw: string; fields: Record<string, string> }>('/api/counterparty', { protocol, message, decision, reason }),
 }
@@ -236,6 +267,7 @@ export interface ValidationReport {
   namespace: string
   profile: string
   schema: boolean
+  guideline?: boolean
   findings: Finding[]
 }
 export interface ValidationExample {
