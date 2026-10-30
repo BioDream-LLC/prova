@@ -16,3 +16,7 @@
 # OS / editor
 .DS_Store
 *.swp
+
+# Python test oracles
+__pycache__/
+*.pyc

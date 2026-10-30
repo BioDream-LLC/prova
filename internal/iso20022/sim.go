@@ -40,6 +40,12 @@ type Sim struct {
 	// Originals are the instructions the host has already processed, by EndToEndId: what a return,
 	// cancellation or status request refers to.
 	Originals map[string]Original
+	// Mandates are the direct-debit mandates the host holds for its debtors, by mandate id. A
+	// collection (pacs.003) under an unknown or revoked mandate, or one for another account, is refused
+	// with MD01.
+	Mandates map[string]Mandate
+	// Entries is how many booked entries an account's report lists (camt.052/053/054).
+	Entries map[string]int
 
 	mu   sync.Mutex
 	seen map[string]bool // EndToEndIds the tester has declared already processed
@@ -51,6 +57,12 @@ type Original struct {
 	Status string // as a status report states it: ACSC (settled), PDNG (pending) ...
 	// Returned marks an original whose funds have already been sent back.
 	Returned bool
+}
+
+// Mandate is a direct-debit mandate the host holds.
+type Mandate struct {
+	Account string // the debtor account it authorises collections from
+	Revoked bool
 }
 
 // MarkSeen declares an EndToEndId as already processed, so a compliant host rejects a resubmission
@@ -68,7 +80,8 @@ func (s *Sim) MarkSeen(e2e string) {
 // Decide computes the status the host returns for a request. Exported so tests and the engine can
 // evaluate the host logic without a socket.
 func (s *Sim) Decide(req Request) Status {
-	resp := Status{Kind: KindPacs002, MsgId: "RSP-" + req.MsgId, OrgnlEndToEndId: req.EndToEndId}
+	resp := Status{Kind: KindPacs002, MsgId: "RSP-" + req.MsgId, OrgnlMsgId: req.MsgId, OrgnlMsgNmId: nameOf(req.Kind),
+		OrgnlEndToEndId: req.EndToEndId}
 	if req.Kind == KindPain001 {
 		resp.Kind = KindPain002 // a customer initiation is answered by a customer payment status report
 	}
@@ -121,9 +134,20 @@ func (s *Sim) Decide(req Request) Status {
 			return reject("AM09") // wrong amount: more than was paid
 		}
 		return accept()
+	case KindCamt060:
+		return s.report(req)
 	}
 
-	// A credit transfer: pacs.008 or pacs.009.
+	// A credit transfer (pacs.008, pacs.009, pain.001) or a direct debit (pacs.003, pacs.010): each
+	// debits DebtorAcct at this host.
+	if req.Kind == KindPacs003 && s.Mode != "accept-all" && s.Mode != "wrong-reason" {
+		s.mu.Lock()
+		m, ok := s.Mandates[req.MandateId]
+		s.mu.Unlock()
+		if req.MandateId == "" || !ok || m.Revoked || m.Account != req.DebtorAcct && m.Account != req.DebtorIBAN {
+			return reject("MD01") // no valid mandate
+		}
+	}
 	s.mu.Lock()
 	avail := s.Ledger[req.DebtorAcct]
 	dup := s.seen[req.EndToEndId]
@@ -216,7 +240,7 @@ func (s *Sim) handle(c net.Conn) {
 		if err != nil {
 			return
 		}
-		out, err := EncodeStatus(s.Decide(req))
+		out, err := s.Reply(req)
 		if err != nil {
 			return
 		}
@@ -241,4 +265,44 @@ func minorUnits(s string) int64 {
 		v = -v
 	}
 	return v
+}
+
+// Reply is the wire reply the host gives to a request.
+func (s *Sim) Reply(req Request) ([]byte, error) { return EncodeStatus(s.Decide(req)) }
+
+// report answers an account reporting request (camt.060) with the report it asks for, or with an
+// admi.002 message reject (AC01) when the host keeps no such account. The defective host answers for
+// any account and reports its balance with pending items included, 100.00 too high.
+func (s *Sim) report(req Request) Status {
+	s.mu.Lock()
+	bal, known := s.Ledger[req.Account]
+	n := s.Entries[req.Account]
+	s.mu.Unlock()
+	kind := req.ReportKind
+	switch kind {
+	case KindCamt052, KindCamt053, KindCamt054:
+	default:
+		kind = KindCamt053
+	}
+	st := Status{Kind: kind, MsgId: "RPT-" + req.MsgId, OrgnlMsgId: req.MsgId, Account: req.Account, Currency: "EUR", Entries: n}
+	if s.Currency() != "" {
+		st.Currency = s.Currency()
+	}
+	switch {
+	case s.Mode == "accept-all":
+		st.ClosingBalance = signedMinor(bal + 10000)
+	case !known:
+		return Status{Kind: KindAdmi002, MsgId: "REJ-" + req.MsgId, OrgnlMsgId: req.MsgId, ReasonCode: "AC01"}
+	default:
+		st.ClosingBalance = signedMinor(bal)
+	}
+	return st
+}
+
+// Currency is the currency the host books in (EUR unless BookCcy says otherwise).
+func (s *Sim) Currency() string {
+	if s.BookCcy != "" {
+		return s.BookCcy
+	}
+	return "EUR"
 }

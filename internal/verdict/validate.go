@@ -68,8 +68,8 @@ func FieldProblems(req map[string]string) []string {
 // data missing its Application Cryptogram (9F26), and a chip entry carrying no EMV data at all.
 func cardSecurityProblems(req map[string]string) []string {
 	var out []string
-	if p := strings.TrimSpace(req["PINBlock"]); p != "" && !hexOfLen(p, 16) {
-		out = append(out, "PIN block is not a 16-hex ISO 9564 block")
+	if p := strings.TrimSpace(req["PINBlock"]); p != "" && !hexOfLen(p, 16) && !hexOfLen(p, 32) {
+		out = append(out, "PIN block is not an ISO 9564 block (16 hex, or 32 for format 4)")
 	}
 	if m := strings.TrimSpace(req["MAC"]); m != "" && !hexOfLen(m, 16) && !hexOfLen(m, 32) {
 		out = append(out, "MAC is not 16 or 32 hex characters")

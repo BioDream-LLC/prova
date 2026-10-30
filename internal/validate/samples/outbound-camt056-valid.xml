@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.056.001.08">
+  <FIToFIPmtCxlReq>
+    <Assgnmt>
+      <Id>MSG-1</Id>
+      <Assgnr>
+        <Agt>
+          <FinInstnId>
+            <BICFI>BANKDEFFXXX</BICFI>
+          </FinInstnId>
+        </Agt>
+      </Assgnr>
+      <Assgne>
+        <Agt>
+          <FinInstnId>
+            <BICFI>BANKFRPPXXX</BICFI>
+          </FinInstnId>
+        </Agt>
+      </Assgne>
+      <CreDtTm>2026-10-20T09:30:00Z</CreDtTm>
+    </Assgnmt>
+    <Undrlyg>
+      <TxInf>
+        <CxlId>E2E-1</CxlId>
+        <OrgnlEndToEndId>E2E-ORIG</OrgnlEndToEndId>
+        <OrgnlIntrBkSttlmAmt Ccy="EUR">90.00</OrgnlIntrBkSttlmAmt>
+        <CxlRsnInf>
+          <Rsn>
+            <Cd>DUPL</Cd>
+          </Rsn>
+        </CxlRsnInf>
+      </TxInf>
+    </Undrlyg>
+  </FIToFIPmtCxlReq>
+</Document>

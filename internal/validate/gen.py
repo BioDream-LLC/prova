@@ -26,7 +26,9 @@ def lxml_valid(xml_bytes):
 def mutate(src):
     muts = [("orig", src)]
     for tag in ["NbOfTxs", "TxSts", "CxlId", "ChrgBr", "SttlmMtd", "EndToEndId",
-                "MsgId", "CreDtTm", "InitgPty", "PmtMtd", "Conf", "StsReqId", "FinInstnId"]:
+                "MsgId", "CreDtTm", "InitgPty", "PmtMtd", "Conf", "StsReqId", "FinInstnId",
+                "Dbtr", "Cdtr", "DbtrAgt", "CdtrAgt", "IntrBkSttlmAmt", "ReqdMsgNmId", "AcctOwnr", "CdtId",
+                "OrgnlPmtInfId", "RjctgPtyRsn", "CdtDbtInd", "TxCxlSts", "Acct"]:
         if "<%s>" % tag in src or "<%s " % tag in src:
             muts.append(("drop_%s" % tag, re.sub(r"\s*<%s>.*?</%s>" % (tag, tag), "", src, count=1, flags=re.S)))
     muts += [
@@ -42,6 +44,13 @@ def mutate(src):
         ("bad_bic", src.replace("BANKDEFFXXX", "BANK")),
         ("unexpected", src.replace("</GrpHdr>", "<Bogus>x</Bogus></GrpHdr>")),
         ("bad_iban_pat", src.replace("DE89370400440532013000", "DE")),
+        ("bad_seqtp", src.replace("<SeqTp>RCUR</SeqTp>", "<SeqTp>XXXX</SeqTp>")),
+        ("bad_txcxlsts", src.replace("<TxCxlSts>ACCR</TxCxlSts>", "<TxCxlSts>CNCL</TxCxlSts>")),
+        ("bad_uetr", src.replace("8a562c67-ca16-48ba-b074-65581be6f001", "not-a-uetr")),
+        ("iban_and_othr", src.replace("<IBAN>DE89370400440532013000</IBAN>", "<IBAN>DE89370400440532013000</IBAN><Othr><Id>X</Id></Othr>", 1)),
+        ("swap_dbtr", re.sub(r"(\s*<Dbtr>.*?</Dbtr>)(\s*<DbtrAcct>.*?</DbtrAcct>)", r"\2\1", src, count=1, flags=re.S)),
+        ("bad_cdtdbt", src.replace("<CdtDbtInd>CRDT</CdtDbtInd>", "<CdtDbtInd>CR</CdtDbtInd>", 1)),
+        ("bad_rptkind", src.replace("<ReqdMsgNmId>camt.053.001.08</ReqdMsgNmId>", "<ReqdMsgNmId></ReqdMsgNmId>")),
     ]
     seen, out = set(), []
     for n, m in muts:

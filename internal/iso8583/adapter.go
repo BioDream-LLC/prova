@@ -49,19 +49,25 @@ type Adapter struct{}
 // Name identifies the adapter.
 func (Adapter) Name() string { return "iso8583" }
 
-// Connect dials the target over TCP.
+// Connect dials the target over TCP. The target's "dialect" parameter (generic, visa or mastercard)
+// selects the wire encoding.
 func (Adapter) Connect(ctx context.Context, target adapter.Target, _ adapter.SessionConfig) (adapter.Conn, error) {
+	dialect, err := DialectByName(target.Params["dialect"])
+	if err != nil {
+		return nil, err
+	}
 	var d net.Dialer
 	c, err := d.DialContext(ctx, "tcp", target.Addr)
 	if err != nil {
 		return nil, fmt.Errorf("iso8583: connect %s: %w", target.Addr, err)
 	}
-	return &conn{c: c, r: bufio.NewReader(c)}, nil
+	return &conn{c: c, r: bufio.NewReader(c), d: dialect}, nil
 }
 
 type conn struct {
 	c      net.Conn
 	r      *bufio.Reader
+	d      Dialect
 	lastTx time.Time
 }
 
@@ -71,7 +77,7 @@ func (c *conn) Encode(tmpl adapter.Template, data adapter.Record) ([]byte, error
 	if tmpl.Name != "" && tmpl.Name != "iso8583" {
 		req.MTI = tmpl.Name
 	}
-	return Encode(req)
+	return EncodeIn(c.d, req)
 }
 
 func (c *conn) Send(ctx context.Context, msg []byte) (adapter.Handle, error) {
@@ -94,14 +100,14 @@ func (c *conn) Await(ctx context.Context, _ adapter.Handle) (adapter.Decoded, er
 		return adapter.Decoded{}, fmt.Errorf("iso8583: await: %w", err)
 	}
 	lat := time.Since(c.lastTx)
-	st, err := DecodeResponse(raw)
+	st, err := DecodeResponseIn(c.d, raw)
 	if err != nil {
 		return adapter.Decoded{}, err
 	}
 	return adapter.Decoded{
 		Fields: st.Fields(),
 		Raw:    raw,
-		Meta:   map[string]string{"latencyMs": fmt.Sprintf("%.3f", float64(lat.Microseconds())/1000), "de39": st.ResponseCode},
+		Meta:   map[string]string{"latencyMs": fmt.Sprintf("%.3f", float64(lat.Microseconds())/1000), "de39": st.ResponseCode, "dialect": c.d.Name},
 	}, nil
 }
 

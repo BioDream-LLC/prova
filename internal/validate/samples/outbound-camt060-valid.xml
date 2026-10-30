@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.060.001.05">
+  <AcctRptgReq>
+    <GrpHdr>
+      <MsgId>MSG-1</MsgId>
+      <CreDtTm>2026-10-20T09:30:00Z</CreDtTm>
+    </GrpHdr>
+    <RptgReq>
+      <Id>E2E-1</Id>
+      <ReqdMsgNmId>camt.053.001.08</ReqdMsgNmId>
+      <Acct>
+        <Id>
+          <Othr>
+            <Id>ACC-EUR-1</Id>
+          </Othr>
+        </Id>
+      </Acct>
+      <AcctOwnr>
+        <Pty>
+          <Nm>Debtor Ltd</Nm>
+        </Pty>
+      </AcctOwnr>
+    </RptgReq>
+  </AcctRptgReq>
+</Document>

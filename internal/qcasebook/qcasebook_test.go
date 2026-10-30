@@ -9,11 +9,11 @@ import (
 
 func TestLoadsCompiledCasebook(t *testing.T) {
 	b := Default()
-	if b.Name != "prova-payments" || b.Version != "v2" {
+	if b.Name != "prova-payments" || b.Version != "v3" {
 		t.Fatalf("name/version = %q %q", b.Name, b.Version)
 	}
-	if len(b.Observations()) != 23 {
-		t.Fatalf("observations = %d, want 23", len(b.Observations()))
+	if len(b.Observations()) != 26 {
+		t.Fatalf("observations = %d, want 26", len(b.Observations()))
 	}
 	if b.Fingerprint == "" {
 		t.Fatal("missing cbc fingerprint")

@@ -8,29 +8,35 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/biodream-llc/prova/internal/cardcrypto"
 	"github.com/biodream-llc/prova/internal/fix"
 	"github.com/biodream-llc/prova/internal/iso20022"
 	"github.com/biodream-llc/prova/internal/iso8583"
+	"github.com/biodream-llc/prova/internal/testkeys"
 )
 
 // Target is a running simulated target.
 type Target struct {
 	Name, Protocol, Note, Addr string
+	Params                     map[string]string
 }
 
 // Spec describes a simulated target before it starts.
 type Spec struct {
 	Name, Protocol, Note string
+	Params               map[string]string
 }
 
 // Specs lists the simulated targets in the order they are offered.
 var Specs = []Spec{
-	{"cbpr-uat", "iso20022", "compliant reference host"},
-	{"switch-sim", "iso20022", "accept-all (known defect)"},
-	{"card-switch", "iso8583", "compliant card switch"},
-	{"card-switch-bug", "iso8583", "approves everything (known defect)"},
-	{"fix-venue", "fix", "compliant trading venue"},
-	{"fix-venue-bug", "fix", "fills, cancels and replaces everything (known defect)"},
+	{"cbpr-uat", "iso20022", "compliant reference host", nil},
+	{"switch-sim", "iso20022", "accept-all (known defect)", nil},
+	{"card-switch", "iso8583", "compliant card switch", nil},
+	{"card-switch-bug", "iso8583", "approves everything (known defect)", nil},
+	{"visa-switch", "iso8583", "compliant switch, Visa-style dialect (BCD, EBCDIC, binary bitmaps, 22-byte header)", map[string]string{"dialect": "visa"}},
+	{"mc-switch", "iso8583", "compliant switch, Mastercard-style dialect (EBCDIC, binary bitmaps)", map[string]string{"dialect": "mastercard"}},
+	{"fix-venue", "fix", "compliant trading venue", nil},
+	{"fix-venue-bug", "fix", "fills, cancels and replaces everything (known defect)", nil},
 }
 
 // The seeded state the shipped scenarios rely on.
@@ -59,12 +65,29 @@ func paymentHost(mode string) *iso20022.Sim {
 	return s
 }
 
-func cardSwitch(mode string) *iso8583.Sim {
+// issuerKeys are the switch's keys and cards: the published test keys in internal/testkeys.
+func issuerKeys() *iso8583.IssuerKeys {
+	k := func(h string) []byte { b, _ := cardcrypto.Hex(h); return b }
+	ik := &iso8583.IssuerKeys{
+		PINKey: k(testkeys.PINKey), PINKeyAES: k(testkeys.PINKeyAES),
+		MACKey: k(testkeys.MACKey), MACKeyAES: k(testkeys.MACKeyAES), IMK: k(testkeys.IMK),
+		PINs: map[string]string{}, Cryptogram: map[string]string{},
+	}
+	for _, c := range testkeys.Cards {
+		ik.PINs[c.PAN], ik.Cryptogram[c.PAN] = c.PIN, c.Cryptogram
+	}
+	return ik
+}
+
+func cardSwitch(mode string, dialect iso8583.Dialect) *iso8583.Sim {
 	s := &iso8583.Sim{
-		Mode: mode,
+		Mode:    mode,
+		Dialect: dialect,
+		Keys:    issuerKeys(),
 		Ledger: map[string]int64{
 			"4111111111111111": 14200, "5555555555554444": 100000,
 			"4000000000000002": 100000, "4000000000000010": 100000,
+			"4012888888881881": 14200, "5105105105105100": 14200,
 		},
 		CardStatus: map[string]string{"4000000000000002": "lost", "4000000000000010": "stolen"},
 		Limit:      map[string]int64{"5555555555554444": 50000},
@@ -102,9 +125,13 @@ func build(name string) server {
 	case "switch-sim":
 		return paymentHost("accept-all")
 	case "card-switch":
-		return cardSwitch("")
+		return cardSwitch("", iso8583.Generic)
 	case "card-switch-bug":
-		return cardSwitch("approve-all")
+		return cardSwitch("approve-all", iso8583.Generic)
+	case "visa-switch":
+		return cardSwitch("", iso8583.Visa)
+	case "mc-switch":
+		return cardSwitch("", iso8583.Mastercard)
 	case "fix-venue":
 		return venue("")
 	case "fix-venue-bug":
@@ -126,7 +153,7 @@ func Start(ctx context.Context) ([]Target, error) {
 			}
 			continue
 		}
-		out = append(out, Target{Name: sp.Name, Protocol: sp.Protocol, Note: sp.Note, Addr: addr})
+		out = append(out, Target{Name: sp.Name, Protocol: sp.Protocol, Note: sp.Note, Addr: addr, Params: sp.Params})
 	}
 	return out, firstErr
 }

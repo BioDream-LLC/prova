@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:admi.002.001.01">
+  <admi.002.001.01>
+    <RltdRef>
+      <Ref>MSG-RPT</Ref>
+    </RltdRef>
+    <Rsn>
+      <RjctgPtyRsn>AC01</RjctgPtyRsn>
+      <RjctnDtTm>2026-10-20T09:30:00Z</RjctnDtTm>
+    </Rsn>
+  </admi.002.001.01>
+</Document>

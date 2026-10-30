@@ -35,7 +35,7 @@ func Message(raw []byte, profile string) (Report, error) {
 		rep.Findings = append(rep.Findings, Finding{
 			Rule: "xsd.schema", Severity: Warning, Path: "/Document",
 			Message: "no schema is bundled for namespace " + orNone(ns),
-			Fix:     "prova validates pacs.008/009, pacs.002, pacs.004, pacs.028, camt.056/029/053/054 and pain.001/002",
+			Fix:     "prova bundles schemas for " + strings.Join(Bundled(), ", "),
 		})
 	} else {
 		rep.Schema = true
@@ -48,6 +48,17 @@ func Message(raw []byte, profile string) (Report, error) {
 	}
 	sortFindings(rep.Findings)
 	return rep, nil
+}
+
+// Bundled lists the message versions prova carries an official schema for, sorted.
+func Bundled() []string {
+	schemasOnce.Do(loadSchemas)
+	out := make([]string, 0, len(schemas))
+	for ns := range schemas {
+		out = append(out, nsKind(ns))
+	}
+	sort.Strings(out)
+	return out
 }
 
 // docNamespace reads the xmlns of the element inside Document (the business root).

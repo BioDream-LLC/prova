@@ -21,7 +21,7 @@ func TestTheManualBuildsFromTheServer(t *testing.T) {
 	defineServerFlags(fs)
 	eng := engine.New()
 	for _, s := range sims.Specs {
-		eng.AddTarget(engine.Target{Name: s.Name, Protocol: s.Protocol, Note: s.Note})
+		eng.AddTarget(engine.Target{Name: s.Name, Protocol: s.Protocol, Note: s.Note, Params: s.Params})
 	}
 	doc, err := buildManual(eng, fs)
 	if err != nil {

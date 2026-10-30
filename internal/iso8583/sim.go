@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/biodream-llc/prova/internal/cardcrypto"
 )
 
 // Sim is a built-in simulated card switch. It answers 0100 authorisations and 0200 financial
@@ -30,9 +32,91 @@ type Sim struct {
 	Approved map[string]int64
 	// ProcessingDate (YYYY-MM-DD) is the date cards are checked for expiry against; empty means today.
 	ProcessingDate string
+	// Dialect is the wire encoding the switch speaks (generic when zero).
+	Dialect Dialect
+	// Keys are the issuer's keys and cards, for verifying PINs, MACs and cryptograms. A switch with no
+	// keys checks only their format.
+	Keys *IssuerKeys
 
 	mu   sync.Mutex
 	seen map[string]bool // STANs declared already processed (duplicates, 94)
+}
+
+// IssuerKeys are what the switch verifies card security with.
+type IssuerKeys struct {
+	PINKey, PINKeyAES []byte            // formats 0/1/3 (Triple DES) and 4 (AES)
+	MACKey, MACKeyAES []byte            // retail MAC (8-byte DE64) and AES-CMAC (8 or 16 bytes)
+	IMK               []byte            // issuer master key for application cryptograms
+	PINs              map[string]string // PAN -> PIN
+	Cryptogram        map[string]string // PAN -> cryptogram version (visa-cvn10 when absent)
+}
+
+// Response codes the switch answers card-security failures with, by dialect: an incorrect PIN is 55
+// everywhere; a MAC failure is 63 (security violation); a cryptogram failure is 63 in the generic
+// dialect, 82 in the Visa dialect and 88 in the Mastercard dialect.
+func (s *Sim) securityCodes() (pin, mac, arqc string) {
+	switch s.Dialect.Name {
+	case "visa":
+		return "55", "63", "82"
+	case "mastercard":
+		return "55", "63", "88"
+	}
+	return "55", "63", "63"
+}
+
+// securityCode verifies the PIN block, MAC and cryptogram the request carries under the issuer keys and
+// returns the decline code for the first that fails, or "".
+func (s *Sim) securityCode(req map[int]string) string {
+	k := s.Keys
+	if k == nil {
+		return ""
+	}
+	pinCode, macCode, arqcCode := s.securityCodes()
+	pan := req[2]
+	if blockHex := req[52]; blockHex != "" {
+		if want, ok := k.PINs[pan]; ok {
+			block, _ := cardcrypto.Hex(blockHex)
+			good := false
+			if len(block) == 16 && k.PINKeyAES != nil {
+				pin, err := cardcrypto.DecipherPIN(cardcrypto.Format4, k.PINKeyAES, block, pan)
+				good = err == nil && pin == want
+			} else if len(block) == 8 && k.PINKey != nil {
+				for _, f := range []int{cardcrypto.Format0, cardcrypto.Format3, cardcrypto.Format1} {
+					if pin, err := cardcrypto.DecipherPIN(f, k.PINKey, block, pan); err == nil && pin == want {
+						good = true
+						break
+					}
+				}
+			}
+			if !good {
+				return pinCode
+			}
+		}
+	}
+	if macHex := req[64]; macHex != "" && (k.MACKey != nil || k.MACKeyAES != nil) {
+		amt, _ := strconv.ParseInt(strings.TrimLeft(req[4], "0"), 10, 64)
+		data := cardcrypto.MACData(pan, req[3], fmt.Sprintf("%d.%02d", amt/100, amt%100), currencyAlpha(req[49]), req[11], strings.TrimRight(req[41], " "))
+		good := false
+		if k.MACKey != nil {
+			good, _ = cardcrypto.VerifyMAC(cardcrypto.MACRetail, k.MACKey, data, macHex)
+		}
+		if !good && k.MACKeyAES != nil {
+			good, _ = cardcrypto.VerifyMAC(cardcrypto.MACCMAC, k.MACKeyAES, data, macHex)
+		}
+		if !good {
+			return macCode
+		}
+	}
+	if icc := req[55]; icc != "" && k.IMK != nil {
+		ver := k.Cryptogram[pan]
+		if ver == "" {
+			ver = cardcrypto.VisaCVN10
+		}
+		if ok, err := cardcrypto.VerifyARQC(ver, k.IMK, pan, "", icc); err != nil || !ok {
+			return arqcCode
+		}
+	}
+	return ""
 }
 
 // MarkSeen declares a STAN already processed, so a resubmission of it is declined as a duplicate.
@@ -102,6 +186,8 @@ func (s *Sim) DecideMTI(mti string, req map[int]string) string {
 		return "14" // invalid card number
 	case !cardSecurityOK(req):
 		return "30" // format error: PIN block, MAC or EMV chip data is malformed or missing
+	case s.securityCode(req) != "":
+		return s.securityCode(req) // the PIN, MAC or cryptogram does not verify
 	case req[14] != "" && req[14] < pd[2:4]+pd[5:7]:
 		return "54" // expired card
 	case status == "lost":
@@ -168,11 +254,11 @@ func (s *Sim) handle(c net.Conn) {
 		if err != nil {
 			return
 		}
-		mti, fields, err := Unpack(raw)
+		mti, fields, err := s.Dialect.Unpack(raw)
 		if err != nil {
 			return
 		}
-		out, err := EncodeResponse(mti, fields, s.DecideMTI(mti, fields))
+		out, err := EncodeResponseIn(s.Dialect, mti, fields, s.DecideMTI(mti, fields))
 		if err != nil {
 			return
 		}

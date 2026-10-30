@@ -163,7 +163,7 @@ func TestEveryShippedScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tg := range targets {
-		eng.AddTarget(Target{Name: tg.Name, Protocol: tg.Protocol, Addr: tg.Addr})
+		eng.AddTarget(Target{Name: tg.Name, Protocol: tg.Protocol, Addr: tg.Addr, Params: tg.Params})
 	}
 	scs := eng.Scenarios()
 	if len(scs) < 60 {
@@ -175,7 +175,11 @@ func TestEveryShippedScenario(t *testing.T) {
 			t.Fatalf("duplicate scenario id %s", sc.ID)
 		}
 		seen[sc.ID] = true
-		good, err := eng.Run(ctx, sc.ID, sims.Compliant(sc.Protocol))
+		target := sc.Target
+		if target == "" {
+			target = sims.Compliant(sc.Protocol)
+		}
+		good, err := eng.Run(ctx, sc.ID, target)
 		if err != nil {
 			t.Fatalf("%s: %v", sc.ID, err)
 		}

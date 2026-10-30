@@ -168,7 +168,17 @@ func Unpack(raw []byte) (string, map[int]string, error) {
 	return mti, fields, nil
 }
 
-var currencyNum = map[string]string{"EUR": "978", "USD": "840", "GBP": "826", "JPY": "392"}
+var currencyNum = map[string]string{"EUR": "978", "USD": "840", "GBP": "826", "JPY": "392", "CHF": "756", "CAD": "124"}
+
+// currencyAlpha is the alphabetic code for a numeric ISO 4217 code.
+func currencyAlpha(num string) string {
+	for a, n := range currencyNum {
+		if n == num {
+			return a
+		}
+	}
+	return num
+}
 
 // Request is the normalized input a scenario fills to produce a request message. MTI selects it:
 // 0100 (authorisation, the default), 0200 (financial), 0400 (reversal) or 0800 (network management).
@@ -215,14 +225,17 @@ func FromRecord(r map[string]string) Request {
 	}
 }
 
-// Encode renders the request message its MTI names.
-func Encode(req Request) ([]byte, error) {
+// Encode renders the request message its MTI names, in the generic (ASCII) dialect.
+func Encode(req Request) ([]byte, error) { return EncodeIn(Generic, req) }
+
+// EncodeIn renders the request message its MTI names in a dialect.
+func EncodeIn(d Dialect, req Request) ([]byte, error) {
 	mti := req.MTI
 	if mti == "" {
 		mti = "0100"
 	}
 	if mti == "0800" {
-		return Pack(mti, map[int]string{7: transmissionTime(), 11: req.STAN, 70: req.NetworkCode})
+		return d.Pack(mti, map[int]string{7: transmissionTime(), 11: req.STAN, 70: req.NetworkCode})
 	}
 	ccy := currencyNum[strings.ToUpper(req.Currency)]
 	if ccy == "" {
@@ -265,7 +278,7 @@ func Encode(req Request) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("iso8583: no encoder for MTI %s", mti)
 	}
-	return Pack(mti, f)
+	return d.Pack(mti, f)
 }
 
 func transmissionTime() string { return time.Now().UTC().Format("0102150405") }
@@ -287,8 +300,13 @@ func ResponseMTI(mti string) string {
 
 // EncodeResponse renders the response to a request (used by the simulated switch).
 func EncodeResponse(mti string, reqFields map[int]string, de39 string) ([]byte, error) {
+	return EncodeResponseIn(Generic, mti, reqFields, de39)
+}
+
+// EncodeResponseIn renders the response to a request in a dialect.
+func EncodeResponseIn(d Dialect, mti string, reqFields map[int]string, de39 string) ([]byte, error) {
 	if mti == "0800" {
-		return Pack("0810", map[int]string{
+		return d.Pack("0810", map[int]string{
 			7: getDE(reqFields, 7, transmissionTime()), 11: getDE(reqFields, 11, "000001"), 39: de39, 70: getDE(reqFields, 70, "301"),
 		})
 	}
@@ -302,7 +320,7 @@ func EncodeResponse(mti string, reqFields map[int]string, de39 string) ([]byte, 
 	if de39 == "00" && mti != "0400" {
 		f[38] = "A" + getDE(reqFields, 11, "000001")[1:] // authorisation code
 	}
-	return Pack(ResponseMTI(mti), f)
+	return d.Pack(ResponseMTI(mti), f)
 }
 
 func getDE(f map[int]string, de int, dflt string) string {
@@ -312,9 +330,12 @@ func getDE(f map[int]string, de int, dflt string) string {
 	return dflt
 }
 
-// DecodeResponse decodes a 0110 into a Status.
-func DecodeResponse(raw []byte) (Status, error) {
-	mti, fields, err := Unpack(raw)
+// DecodeResponse decodes a response in the generic dialect into a Status.
+func DecodeResponse(raw []byte) (Status, error) { return DecodeResponseIn(Generic, raw) }
+
+// DecodeResponseIn decodes a response in a dialect into a Status.
+func DecodeResponseIn(d Dialect, raw []byte) (Status, error) {
+	mti, fields, err := d.Unpack(raw)
 	if err != nil {
 		return Status{}, err
 	}

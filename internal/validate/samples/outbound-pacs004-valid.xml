@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.004.001.10">
+  <PmtRtr>
+    <GrpHdr>
+      <MsgId>MSG-1</MsgId>
+      <CreDtTm>2026-10-20T09:30:00Z</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <SttlmInf>
+        <SttlmMtd>CLRG</SttlmMtd>
+      </SttlmInf>
+    </GrpHdr>
+    <TxInf>
+      <RtrId>E2E-1</RtrId>
+      <OrgnlEndToEndId>E2E-ORIG</OrgnlEndToEndId>
+      <RtrdIntrBkSttlmAmt Ccy="EUR">90.00</RtrdIntrBkSttlmAmt>
+      <ChrgBr>SLEV</ChrgBr>
+      <RtrRsnInf>
+        <Rsn>
+          <Cd>DUPL</Cd>
+        </Rsn>
+      </RtrRsnInf>
+    </TxInf>
+  </PmtRtr>
+</Document>

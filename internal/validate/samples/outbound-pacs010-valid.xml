@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.010.001.04">
+  <FIDrctDbt>
+    <GrpHdr>
+      <MsgId>MSG-1</MsgId>
+      <CreDtTm>2026-10-20T09:30:00Z</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+    </GrpHdr>
+    <CdtInstr>
+      <CdtId>MSG-1</CdtId>
+      <Cdtr>
+        <FinInstnId>
+          <BICFI>BANKFRPPXXX</BICFI>
+        </FinInstnId>
+      </Cdtr>
+      <CdtrAcct>
+        <Id>
+          <IBAN>FR1420041010050500013M02606</IBAN>
+        </Id>
+      </CdtrAcct>
+      <DrctDbtTxInf>
+        <PmtId>
+          <InstrId>MSG-1</InstrId>
+          <EndToEndId>E2E-1</EndToEndId>
+          <TxId>E2E-1</TxId>
+          <UETR>8a562c67-ca16-48ba-b074-65581be6f001</UETR>
+        </PmtId>
+        <IntrBkSttlmAmt Ccy="EUR">90.00</IntrBkSttlmAmt>
+        <Dbtr>
+          <FinInstnId>
+            <BICFI>BANKDEFFXXX</BICFI>
+          </FinInstnId>
+        </Dbtr>
+        <DbtrAcct>
+          <Id>
+            <IBAN>DE89370400440532013000</IBAN>
+          </Id>
+        </DbtrAcct>
+      </DrctDbtTxInf>
+    </CdtInstr>
+  </FIDrctDbt>
+</Document>

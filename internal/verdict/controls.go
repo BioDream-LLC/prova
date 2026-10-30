@@ -70,7 +70,7 @@ func originalPending(c Case) bool { return ctx(c, "originalPending") == "true" }
 
 func statusMismatch(c Case) bool {
 	want := ctx(c, "originalStatus")
-	return want != "" && strings.TrimSpace(c.Response["reportedStatus"]) != want
+	return want != "" && strings.TrimSpace(c.Response["reportedStatus"]) != want || len(reportMismatch(c)) > 0
 }
 
 func marketClosed(c Case) bool      { return ctx(c, "marketOpen") == "false" }
@@ -93,7 +93,7 @@ func positionShort(c Case) bool {
 func mustReject(c Case) bool {
 	return overBalance(c) || ccyMismatch(c) || backValued(c) || isDuplicate(c) || len(FieldProblems(c.Request)) > 0 ||
 		accountUnusable(c) || overLimit(c) || originalUnknown(c) || exceedsOriginal(c) || originalFinal(c) ||
-		marketClosed(c) || instrumentUnknown(c) || positionShort(c)
+		marketClosed(c) || instrumentUnknown(c) || positionShort(c) || securityFailed(c) || mandateMissing(c) || sessionViolation(c)
 }
 
 func accepted(c Case) bool { return c.Response["decision"] == "accepted" }
@@ -226,12 +226,17 @@ func RuleCancellation() Rule {
 	}
 }
 
-// RuleStatusReport: a status report must state the original's known status.
+// RuleStatusReport: a status report must state the original's known status, and an account report
+// the account, closing balance and entries the tester seeded.
 func RuleStatusReport() Rule {
 	return Rule{
 		ID:    "status.consistent",
-		Title: "A status report must state the original's known status",
+		Title: "A report must state what the host is known to hold",
 		Apply: func(c Case, b *builder) {
+			if probs := reportMismatch(c); len(probs) > 0 {
+				b.add(af.Arg{ID: "ev_report", Claim: "the seeded account state", Cites: []string{"seeded statementAccount/statementBalance/statementEntries"}})
+				b.violate(af.Arg{ID: "v_report", Claim: strings.Join(probs, "; "), Cites: probs})
+			}
 			want := ctx(c, "originalStatus")
 			if want == "" {
 				return

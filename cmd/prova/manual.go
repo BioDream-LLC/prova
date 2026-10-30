@@ -119,7 +119,7 @@ func manualCLI(args []string) int {
 	eng := engine.New()
 	// The reference lists the simulated targets a server starts; register them without starting them.
 	for _, t := range sims.Specs {
-		eng.AddTarget(engine.Target{Name: t.Name, Protocol: t.Protocol, Note: t.Note})
+		eng.AddTarget(engine.Target{Name: t.Name, Protocol: t.Protocol, Note: t.Note, Params: t.Params})
 	}
 	server := flag.NewFlagSet("prova", flag.ContinueOnError)
 	defineServerFlags(server)

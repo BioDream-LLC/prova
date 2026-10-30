@@ -53,7 +53,7 @@ func invalidInstruction(r map[string]string) bool {
 // cardInsecure is the second engine's own card-security check (PIN block, MAC, EMV chip data),
 // written separately from prova's Go casebook. It scans the TLV with a hand-rolled cursor.
 func cardInsecure(r map[string]string) bool {
-	if p := strings.TrimSpace(r["PINBlock"]); p != "" && !hexLen(p, 16) {
+	if p := strings.TrimSpace(r["PINBlock"]); p != "" && !hexLen(p, 16) && !hexLen(p, 32) {
 		return true
 	}
 	if m := strings.TrimSpace(r["MAC"]); m != "" && !hexLen(m, 16) && !hexLen(m, 32) {

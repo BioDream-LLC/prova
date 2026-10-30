@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +27,9 @@ type Scenario struct {
 	Request     map[string]string `json:"request"`
 	Context     map[string]string `json:"context"`
 	Expect      string            `json:"expect"`
+	// Target is the simulated target the scenario is written for, when it needs a particular one (a
+	// dialect, a session version); empty means any compliant target of its protocol.
+	Target string `json:"target,omitempty"`
 }
 
 // Message is one leg of the exchange, normalized for display.
@@ -44,6 +48,9 @@ type Target struct {
 	Protocol string `json:"protocol"`
 	Addr     string `json:"addr"`
 	Note     string `json:"note,omitempty"`
+	// Params are protocol settings: an ISO 8583 dialect (dialect=visa), a FIX session version
+	// (BeginString=FIX.4.2, DefaultApplVerID=9) or comp ids.
+	Params map[string]string `json:"params,omitempty"`
 }
 
 // Run is a completed scenario execution and its proved verdict.
@@ -253,7 +260,7 @@ func (e *Engine) execOnce(ctx context.Context, sc Scenario, targetName string) (
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	conn, err := a.Connect(ctx, adapter.Target{Addr: tgt.Addr}, adapter.SessionConfig{})
+	conn, err := a.Connect(ctx, adapter.Target{Addr: tgt.Addr, Params: tgt.Params}, adapter.SessionConfig{Params: tgt.Params})
 	if err != nil {
 		return Run{}, err
 	}
@@ -285,14 +292,14 @@ func (e *Engine) execOnce(ctx context.Context, sc Scenario, targetName string) (
 			Kind:    outKind,
 			Summary: requestSummary(outKind, sc.Request),
 			Fields:  sc.Request,
-			Raw:     string(msg),
+			Raw:     rawText(msg),
 		},
 		{
 			Dir:       "in",
 			Kind:      inKind,
 			Summary:   responseSummary(sc.Protocol, dec.Fields),
 			Fields:    dec.Fields,
-			Raw:       string(dec.Raw),
+			Raw:       rawText(dec.Raw),
 			LatencyMs: lat,
 		},
 	}
@@ -309,6 +316,27 @@ func (e *Engine) execOnce(ctx context.Context, sc Scenario, targetName string) (
 		Messages:   messages,
 		Result:     res,
 	}, nil
+}
+
+// rawText is a message as the interface shows it: as text when it is printable (ISO 20022 XML, FIX,
+// ASCII ISO 8583), else as a hex dump (the binary Visa and Mastercard dialects).
+func rawText(b []byte) string {
+	printable := true
+	for _, c := range b {
+		if c < 0x20 && c != '\n' && c != '\r' && c != '\t' && c != 0x01 || c > 0x7E {
+			printable = false
+			break
+		}
+	}
+	if printable {
+		return string(b)
+	}
+	var sb strings.Builder
+	for i := 0; i < len(b); i += 16 {
+		end := min(i+16, len(b))
+		fmt.Fprintf(&sb, "%04X  % X\n", i, b[i:end])
+	}
+	return sb.String()
 }
 
 // store assigns an id, saves the run to the store if there is one, and keeps it in the bounded in-memory history.

@@ -387,7 +387,7 @@ func startSims(ctx context.Context, eng *engine.Engine, seedHistory bool) {
 		log.Printf("prova: %v", err)
 	}
 	for _, t := range targets {
-		eng.AddTarget(engine.Target{Name: t.Name, Protocol: t.Protocol, Addr: t.Addr, Note: t.Note})
+		eng.AddTarget(engine.Target{Name: t.Name, Protocol: t.Protocol, Addr: t.Addr, Note: t.Note, Params: t.Params})
 	}
 
 	if !seedHistory {

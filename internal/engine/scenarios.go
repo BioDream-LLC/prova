@@ -8,6 +8,7 @@ func builtinScenarios() []Scenario {
 	var out []Scenario
 	out = append(out, iso20022Scenarios()...)
 	out = append(out, iso8583Scenarios()...)
+	out = append(out, cardSecurityScenarios()...)
 	out = append(out, fixScenarios()...)
 	return out
 }
@@ -224,11 +225,6 @@ func iso8583Scenarios() []Scenario {
 			Description: "Send a network-management echo test (DE70=301). The switch must answer 0810 with DE39=00.",
 			Request:     kv("STAN", "000116", "NetworkCode", "301"), Context: map[string]string{}, Expect: "0810 (DE39=00)"},
 		// Card security: PIN block (DE52), MAC (DE64) and EMV chip data (DE55)
-		{ID: "iso8583-chip-valid", Name: "ISO 8583 0100 — chip purchase with ARQC", Protocol: p,
-			Description: "A chip-read (DE22=051) authorisation carrying a valid PIN block, MAC and EMV data with an Application Cryptogram (9F26). Within balance, the switch must approve.",
-			Request: with(card("90.00", "000120"), "POSEntryMode", "051", "PINBlock", "0412FFFFFFFFFF99",
-				"MAC", "A1B2C3D4E5F60718", "ICCData", "9F26080123456789ABCDEF9F2701809F3602000195050000000000"),
-			Context: bal, Expect: "approve (DE39=00)"},
 		{ID: "iso8583-chip-no-emv", Name: "ISO 8583 0100 — chip entry without EMV data", Protocol: p,
 			Description: "A chip-read entry (DE22=051) carrying no DE55 EMV data at all. The switch must decline with DE39=30 (format error).",
 			Request:     with(card("90.00", "000121"), "POSEntryMode", "051"), Context: with(bal, "expectReason", "30"), Expect: "decline (DE39=30)"},

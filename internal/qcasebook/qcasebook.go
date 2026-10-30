@@ -244,6 +244,9 @@ func Bind(c verdict.Case) map[string]bool {
 		"service_closed":      ctx("marketOpen") == "false",
 		"instrument_unknown":  ctx("instrumentKnown") == "false",
 		"position_short":      short,
+		"security_failed":     securityFails(r, c.Context),
+		"mandate_missing":     ctx("mandateValid") == "false",
+		"session_violation":   ctx("sessionViolation") == "true",
 	}
 	// A rejection is required when any control forbids acceptance; only then is its reason judged.
 	required := false
@@ -261,8 +264,28 @@ func Bind(c verdict.Case) map[string]bool {
 	read["balance_unknown"] = debits && !balanceKnown
 	read["overdraft_unknown"] = ctx("overdraftLimit") == "unknown"
 	read["cancellable"] = ctx("originalPending") == "true"
-	read["status_mismatch"] = ctx("originalStatus") != "" && strings.TrimSpace(resp["reportedStatus"]) != ctx("originalStatus")
+	read["status_mismatch"] = ctx("originalStatus") != "" && strings.TrimSpace(resp["reportedStatus"]) != ctx("originalStatus") ||
+		reportDiffers(c.Context, resp)
 	return read
+}
+
+// reportDiffers is the second engine's account-report reading: the report names another account, a
+// closing balance other than the seeded one (or none), or another number of entries.
+func reportDiffers(ctx, resp map[string]string) bool {
+	get := func(m map[string]string, k string) string { return strings.TrimSpace(m[k]) }
+	if a := get(ctx, "statementAccount"); a != "" && a != get(resp, "reportedAccount") {
+		return true
+	}
+	if b := get(ctx, "statementBalance"); b != "" {
+		got := get(resp, "reportedBalance")
+		if got == "" || minor(got) != minor(b) {
+			return true
+		}
+	}
+	if n := get(ctx, "statementEntries"); n != "" && n != get(resp, "entries") {
+		return true
+	}
+	return false
 }
 
 // Framework instantiates the casebook for a set of present readings: the fixed attacks, plus a

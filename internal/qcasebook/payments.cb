@@ -1,5 +1,5 @@
-casebook prova-payments v2
-source "prova behavioural payment, card and order controls" dated 2026-10-16 by "BioDream LLC"
+casebook prova-payments v3
+source "prova behavioural payment, card and order controls" dated 2026-10-30 by "BioDream LLC"
 note "Second, independent verdict engine for prova. Written in quorum's casebook language and compiled by cbc, which validates every combination of readings before the framework is emitted. prova's Go casebook decides the same cases by a different route; the two are cross-checked on every run."
 note "Readings are booleans produced by prova's binding layer from the exchange: what was sent, what the tester seeded, what the host returned. Thresholds (amount vs balance or limit, date order, currency equality, identifier checksums) live in the binding, not here."
 
@@ -23,10 +23,13 @@ observe original_unknown   "the instruction refers to an original the host never
 observe exceeds_original   "the amount exceeds the original transaction's amount"
 observe already_final      "the original is final and can no longer be cancelled"
 observe cancellable        "the original is still pending and can be cancelled"
-observe status_mismatch    "the reported status is not the original's known status"
+observe status_mismatch    "the report does not state what the host is known to hold"
 observe service_closed     "the market or service is closed"
 observe instrument_unknown "the instrument is not one the venue lists"
 observe position_short     "the sell quantity exceeds the seeded position"
+observe security_failed    "a PIN, MAC or chip cryptogram fails verification under the seeded keys"
+observe mandate_missing    "the direct debit has no valid mandate"
+observe session_violation  "the message breaks the FIX session rules"
 
 # A response cannot both accept and reject.
 exclusive host_accepted host_rejected
@@ -47,10 +50,13 @@ claim accepted_no_original  "host accepted an instruction whose original it neve
 claim accepted_over_original "host accepted more than the original transaction's amount" needs exceeds_original host_accepted
 claim cancelled_final       "host cancelled an original that was already final" needs already_final host_accepted
 claim refused_cancellable   "host refused to cancel an original that was still pending" needs cancellable host_rejected
-claim wrong_status          "host reported a status other than the original's"  needs status_mismatch
+claim wrong_status          "host reported something other than what it holds" needs status_mismatch
 claim accepted_when_closed  "host accepted an order while the market was closed" needs service_closed host_accepted
 claim accepted_unknown_instrument "host accepted an order for an instrument it does not list" needs instrument_unknown host_accepted
 claim accepted_short        "host accepted a sale larger than the position"     needs position_short host_accepted
+claim accepted_insecure     "host approved a transaction whose PIN, MAC or cryptogram fails verification" needs security_failed host_accepted
+claim accepted_no_mandate   "host collected a direct debit without a valid mandate" needs mandate_missing host_accepted
+claim accepted_bad_session  "venue processed a message that breaks the session rules" needs session_violation host_accepted
 
 # A funds rejection is only wrong when the account could cover the payment.
 over_balance    rebuts rejected_covered
@@ -75,5 +81,5 @@ overdraft_unconfirmed rebuts    overdraft
 
 # ─── the verdict ────────────────────────────────────────────────────────────
 action pass idle
-action fail safe when any accepted_over_balance wrong_reason rejected_covered rejected_no_reason malformed accepted_wrong_ccy accepted_back_valued accepted_duplicate accepted_invalid accepted_unavailable accepted_over_limit accepted_no_original accepted_over_original cancelled_final refused_cancellable wrong_status accepted_when_closed accepted_unknown_instrument accepted_short maybe_short
+action fail safe when any accepted_over_balance wrong_reason rejected_covered rejected_no_reason malformed accepted_wrong_ccy accepted_back_valued accepted_duplicate accepted_invalid accepted_unavailable accepted_over_limit accepted_no_original accepted_over_original cancelled_final refused_cancellable wrong_status accepted_when_closed accepted_unknown_instrument accepted_short accepted_insecure accepted_no_mandate accepted_bad_session maybe_short
 prefer fail over pass

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.052.001.08">
+  <BkToCstmrAcctRpt>
+    <GrpHdr>
+      <MsgId>RPT-MSG-RPT</MsgId>
+      <CreDtTm>2026-10-20T09:30:00Z</CreDtTm>
+    </GrpHdr>
+    <Rpt>
+      <Id>RPT-MSG-RPT</Id>
+      <Acct>
+        <Id>
+          <Othr>
+            <Id>ACC-EUR-1</Id>
+          </Othr>
+        </Id>
+      </Acct>
+      <Bal>
+        <Tp>
+          <CdOrPrtry>
+            <Cd>CLBD</Cd>
+          </CdOrPrtry>
+        </Tp>
+        <Amt Ccy="EUR">142.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt>
+          <Dt>2026-10-20</Dt>
+        </Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">0.01</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>
+          <Cd>BOOK</Cd>
+        </Sts>
+        <BkTxCd>
+          <Prtry>
+            <Cd>PROVA</Cd>
+          </Prtry>
+        </BkTxCd>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">0.01</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>
+          <Cd>BOOK</Cd>
+        </Sts>
+        <BkTxCd>
+          <Prtry>
+            <Cd>PROVA</Cd>
+          </Prtry>
+        </BkTxCd>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>

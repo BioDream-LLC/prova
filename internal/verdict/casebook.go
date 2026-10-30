@@ -122,6 +122,9 @@ func Default() Casebook {
 		RuleMarketOpen(),
 		RuleInstrumentListed(),
 		RulePosition(),
+		RuleCardSecurity(),
+		RuleMandate(),
+		RuleSession(),
 		RuleExpectedReason(),
 	}}
 }

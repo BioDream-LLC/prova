@@ -11,7 +11,7 @@ import "strings"
 // request are well formed, and that a chip or contactless-chip entry carries an ARQC. A field that is
 // absent is not checked — only what is present, plus the chip-entry requirement.
 func cardSecurityOK(f map[int]string) bool {
-	if p := f[52]; p != "" && !isHexLen(p, 16) {
+	if p := f[52]; p != "" && !isHexLen(p, 16) && !isHexLen(p, 32) { // formats 0-3, or format 4 (AES)
 		return false
 	}
 	if m := f[64]; m != "" && !isHexLen(m, 16) && !isHexLen(m, 32) {

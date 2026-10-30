@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.029.001.09">
+  <RsltnOfInvstgtn>
+    <Assgnmt>
+      <Id>RSP-MSG-1</Id>
+      <Assgnr>
+        <Agt>
+          <FinInstnId>
+            <BICFI>BANKFRPPXXX</BICFI>
+          </FinInstnId>
+        </Agt>
+      </Assgnr>
+      <Assgne>
+        <Agt>
+          <FinInstnId>
+            <BICFI>BANKDEFFXXX</BICFI>
+          </FinInstnId>
+        </Agt>
+      </Assgne>
+      <CreDtTm>2026-10-20T09:30:00Z</CreDtTm>
+    </Assgnmt>
+    <Sts>
+      <Conf>RJCR</Conf>
+    </Sts>
+    <CxlDtls>
+      <TxInfAndSts>
+        <OrgnlEndToEndId>E2E-ORIG</OrgnlEndToEndId>
+        <TxCxlSts>RJCR</TxCxlSts>
+        <CxlStsRsnInf>
+          <Rsn>
+            <Cd>NOOR</Cd>
+          </Rsn>
+        </CxlStsRsnInf>
+      </TxInfAndSts>
+    </CxlDtls>
+  </RsltnOfInvstgtn>
+</Document>
