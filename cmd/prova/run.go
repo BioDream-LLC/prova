@@ -18,6 +18,8 @@ import (
 //	prova run --suite regression-iso20022 --junit results.xml
 //	prova run --scenario iso8583-over-limit --target card-switch
 //	prova run --scenario pacs008-within-balance --target cbpr-uat --load 500 --concurrency 16
+//	prova run --scenario fix-within-limit --target fix-venue --duration 60s --rate 2000 --concurrency 32
+//	prova run --replay-live capture.jsonl --target card-switch --speed 1
 func runCLI(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	suite := fs.String("suite", "", "suite id to run")
@@ -26,7 +28,11 @@ func runCLI(args []string) int {
 	junit := fs.String("junit", "", "write a JUnit XML report to this file")
 	jsonOut := fs.String("json", "", "write a JSON report to this file")
 	load := fs.Int("load", 0, "run the scenario this many times as a load test")
-	concurrency := fs.Int("concurrency", 8, "load-test concurrency")
+	concurrency := fs.Int("concurrency", 8, "load-test workers, each with its own connection")
+	rate := fs.Float64("rate", 0, "load-test pace in requests per second (0: as fast as possible)")
+	duration := fs.Duration("duration", 0, "run the load test for this long instead of a fixed count (e.g. 60s)")
+	replayLive := fs.String("replay-live", "", "replay a cassette (recorded or imported with prova import) live against --target")
+	speed := fs.Float64("speed", 0, "with --replay-live, keep the recorded timing at this speed (1 = real time; 0 = as paced by --rate)")
 	record := fs.String("record", "", "write a replayable cassette (JSONL) of the runs to this file")
 	replay := fs.String("replay", "", "re-prove a recorded cassette (JSONL) offline, with no live target")
 	allowIndet := fs.Bool("allow-indeterminate", false, "treat indeterminate as success")
@@ -53,26 +59,52 @@ func runCLI(args []string) int {
 
 	startSims(ctx, eng, false)
 
-	switch {
-	case *load > 0:
-		if *scenario == "" || *target == "" {
-			fmt.Fprintln(os.Stderr, "prova run --load requires --scenario and --target")
-			return 2
-		}
-		lr, err := eng.RunLoad(ctx, *scenario, *target, *load, *concurrency)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "prova:", err)
-			return 1
-		}
+	printLoad := func(lr engine.LoadResult) int {
 		fmt.Printf("load %s @ %s: %d requests, %d workers in %dms\n", lr.Scenario, lr.Target, lr.N, lr.Concurrency, lr.DurationMs)
 		fmt.Printf("  throughput %.0f req/s   latency p50=%.2fms p95=%.2fms p99=%.2fms max=%.2fms   errors=%d\n",
 			lr.Throughput, lr.P50, lr.P95, lr.P99, lr.Max, lr.Errors)
 		fmt.Printf("  outcomes: %v\n", lr.Outcomes)
+		if lr.FirstError != "" {
+			fmt.Printf("  first error: %s\n", lr.FirstError)
+		}
 		writeReport(*jsonOut, "", lr, nil)
 		if lr.Errors > 0 || lr.Outcomes["fail"] > 0 {
 			return 1
 		}
 		return 0
+	}
+
+	switch {
+	case *replayLive != "":
+		if *target == "" {
+			fmt.Fprintln(os.Stderr, "prova run --replay-live requires --target")
+			return 2
+		}
+		recs, err := engine.ReadRecordings(*replayLive)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "prova:", err)
+			return 1
+		}
+		lr, err := eng.RunLoadSpec(ctx, engine.LoadSpec{Replay: recs, Target: *target, N: *load, Duration: *duration,
+			Concurrency: *concurrency, Rate: *rate, Speed: *speed})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "prova:", err)
+			return 1
+		}
+		return printLoad(lr)
+
+	case *load > 0 || *duration > 0:
+		if *scenario == "" || *target == "" {
+			fmt.Fprintln(os.Stderr, "prova run --load/--duration requires --scenario and --target")
+			return 2
+		}
+		lr, err := eng.RunLoadSpec(ctx, engine.LoadSpec{Scenario: *scenario, Target: *target, N: *load, Duration: *duration,
+			Concurrency: *concurrency, Rate: *rate})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "prova:", err)
+			return 1
+		}
+		return printLoad(lr)
 
 	case *suite != "":
 		res, err := eng.RunSuite(ctx, *suite, *target)

@@ -59,6 +59,7 @@ type Run struct {
 	ScenarioID string            `json:"scenarioId"`
 	Scenario   string            `json:"scenario"`
 	Protocol   string            `json:"protocol"`
+	Message    string            `json:"message,omitempty"` // the message sent (pacs.008, 0400, F ...)
 	Target     string            `json:"target"`
 	At         time.Time         `json:"at"`
 	Outcome    verdict.Outcome   `json:"outcome"`
@@ -308,6 +309,7 @@ func (e *Engine) execOnce(ctx context.Context, sc Scenario, targetName string) (
 		ScenarioID: sc.ID,
 		Scenario:   sc.Name,
 		Protocol:   sc.Protocol,
+		Message:    sc.MessageKind(),
 		Target:     tgt.Name,
 		At:         time.Now().UTC(),
 		Outcome:    res.Outcome,

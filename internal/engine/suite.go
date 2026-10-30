@@ -3,9 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/biodream-llc/prova/internal/verdict"
@@ -53,6 +51,10 @@ type LoadResult struct {
 	Outcomes    map[string]int `json:"outcomes"`
 	At          time.Time      `json:"at"`
 	By          string         `json:"by,omitempty"`
+	Mean        float64        `json:"mean"`
+	Rate        float64        `json:"rate,omitempty"`       // the requested pace, requests per second (0: as fast as possible)
+	FirstError  string         `json:"firstError,omitempty"` // the first transport error, if any
+	Timeline    []Second       `json:"timeline,omitempty"`   // requests sent, errors and p95 latency per second
 }
 
 // Suites lists the shipped suites.
@@ -132,101 +134,6 @@ func (e *Engine) RunSuite(ctx context.Context, suiteID, targetOverride string) (
 		e.mu.Unlock()
 	}
 	return res, nil
-}
-
-// RunLoad executes scenarioID against target n times across concurrency workers and reports latency
-// percentiles and throughput. The individual requests are not stored (a load run can be large); the summary is.
-func (e *Engine) RunLoad(ctx context.Context, scenarioID, target string, n, concurrency int) (LoadResult, error) {
-	e.mu.Lock()
-	sc, ok := e.scenario(scenarioID)
-	e.mu.Unlock()
-	if !ok {
-		return LoadResult{}, fmt.Errorf("engine: unknown scenario %q", scenarioID)
-	}
-	if n <= 0 {
-		n = 1
-	}
-	if concurrency <= 0 {
-		concurrency = 1
-	}
-	if concurrency > n {
-		concurrency = n
-	}
-
-	type one struct {
-		lat float64
-		out verdict.Outcome
-		err error
-	}
-	results := make([]one, n)
-	tasks := make(chan int)
-	var wg sync.WaitGroup
-	start := time.Now()
-	for w := 0; w < concurrency; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := range tasks {
-				run, err := e.execOnce(ctx, sc, target)
-				if err != nil {
-					results[i] = one{err: err}
-				} else {
-					results[i] = one{lat: run.LatencyMs, out: run.Outcome}
-				}
-			}
-		}()
-	}
-	for i := 0; i < n; i++ {
-		tasks <- i
-	}
-	close(tasks)
-	wg.Wait()
-	dur := time.Since(start)
-
-	lr := LoadResult{
-		Scenario: sc.Name, Target: target, N: n, Concurrency: concurrency,
-		DurationMs: dur.Milliseconds(), At: time.Now().UTC(),
-		Outcomes: map[string]int{},
-	}
-	if secs := dur.Seconds(); secs > 0 {
-		lr.Throughput = float64(n) / secs
-	}
-	var lats []float64
-	for _, r := range results {
-		if r.err != nil {
-			lr.Errors++
-			continue
-		}
-		lats = append(lats, r.lat)
-		lr.Outcomes[string(r.out)]++
-	}
-	lr.P50 = percentile(lats, 50)
-	lr.P95 = percentile(lats, 95)
-	lr.P99 = percentile(lats, 99)
-	lr.Max = percentile(lats, 100)
-	lr.By = actorFrom(ctx)
-	e.mu.Lock()
-	st := e.st
-	e.mu.Unlock()
-	if st != nil {
-		if err := st.SaveLoad(lr); err != nil {
-			return LoadResult{}, fmt.Errorf("engine: saving load run: %w", err)
-		}
-	}
-	return lr, nil
-}
-
-func percentile(xs []float64, p int) float64 {
-	if len(xs) == 0 {
-		return 0
-	}
-	s := append([]float64(nil), xs...)
-	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
-	idx := (p * len(s)) / 100
-	if idx >= len(s) {
-		idx = len(s) - 1
-	}
-	return s[idx]
 }
 
 // pick lists the shipped scenarios whose ids start with any of the prefixes, in shipped order, leaving

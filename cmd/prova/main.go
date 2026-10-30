@@ -20,9 +20,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/biodream-llc/prova/internal/authweb"
+	"github.com/biodream-llc/prova/internal/capture"
 	"github.com/biodream-llc/prova/internal/engine"
 	"github.com/biodream-llc/prova/internal/mt"
 	"github.com/biodream-llc/prova/internal/script"
@@ -52,6 +54,10 @@ func main() {
 	// Subcommand: `prova validate` checks an ISO 20022 message against the schema and a profile.
 	if len(os.Args) > 1 && os.Args[1] == "validate" {
 		os.Exit(validateCLI(os.Args[2:]))
+	}
+	// Subcommand: `prova import` turns captured traffic into a replayable cassette.
+	if len(os.Args) > 1 && os.Args[1] == "import" {
+		os.Exit(importCLI(os.Args[2:]))
 	}
 	// Subcommand: `prova hsm` checks an HSM that speaks the payShield host commands.
 	if len(os.Args) > 1 && os.Args[1] == "hsm" {
@@ -200,16 +206,23 @@ func main() {
 	})
 	mux.HandleFunc("POST /api/load", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Scenario    string `json:"scenario"`
-			Target      string `json:"target"`
-			N           int    `json:"n"`
-			Concurrency int    `json:"concurrency"`
+			Scenario    string  `json:"scenario"`
+			Target      string  `json:"target"`
+			N           int     `json:"n"`
+			Concurrency int     `json:"concurrency"`
+			Rate        float64 `json:"rate"`
+			Seconds     float64 `json:"seconds"` // run for this long instead of n requests
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 			return
 		}
-		res, err := eng.RunLoad(acting(r), body.Scenario, body.Target, body.N, body.Concurrency)
+		if body.Seconds > 600 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a load run from the interface lasts at most 10 minutes; use prova run for longer"})
+			return
+		}
+		res, err := eng.RunLoadSpec(acting(r), engine.LoadSpec{Scenario: body.Scenario, Target: body.Target, N: body.N,
+			Concurrency: body.Concurrency, Rate: body.Rate, Duration: time.Duration(body.Seconds * float64(time.Second))})
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -222,6 +235,48 @@ func main() {
 	mux.HandleFunc("GET /api/transform/pairs", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"pairs": mt.Pairs, "samples": mt.Samples()})
 	})
+	mux.HandleFunc("POST /api/load/replay", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Target      string  `json:"target"`
+			Cassette    string  `json:"cassette"` // JSON Lines recordings, or
+			Capture     string  `json:"capture"`  // raw captured traffic of Protocol
+			Protocol    string  `json:"protocol"`
+			Dialect     string  `json:"dialect"`
+			Mask        bool    `json:"mask"`
+			N           int     `json:"n"`
+			Concurrency int     `json:"concurrency"`
+			Rate        float64 `json:"rate"`
+			Speed       float64 `json:"speed"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<20)).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body (at most 64 MB)"})
+			return
+		}
+		var recs []engine.Recording
+		var rep any
+		var err error
+		if body.Capture != "" {
+			var cr capture.Report
+			recs, cr, err = capture.Import(body.Protocol, strings.NewReader(body.Capture), capture.Options{Dialect: body.Dialect, Mask: body.Mask})
+			rep = cr
+		} else {
+			recs, err = engine.ParseRecordings(strings.NewReader(body.Cassette))
+		}
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		res, err := eng.RunLoadSpec(acting(r), engine.LoadSpec{Replay: recs, Target: body.Target, N: body.N,
+			Concurrency: body.Concurrency, Rate: body.Rate, Speed: body.Speed})
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		activity(r, "replayed traffic", fmt.Sprintf("%d recordings on %s: %d requests, %.0f/s, p95 %.2f ms", len(recs), res.Target,
+			res.N, res.Throughput, res.P95))
+		writeJSON(w, http.StatusOK, map[string]any{"load": res, "import": rep, "recordings": len(recs)})
+	})
+
 	mux.HandleFunc("POST /api/transform", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Direction string `json:"direction"` // mt2mx | mx2mt

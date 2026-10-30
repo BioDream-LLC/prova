@@ -21,6 +21,7 @@ type Recording struct {
 	ScenarioID string            `json:"scenarioId"`
 	Scenario   string            `json:"scenario"`
 	Protocol   string            `json:"protocol"`
+	Message    string            `json:"message,omitempty"` // the message sent (pacs.008, 0400, F ...); empty is the protocol's default
 	Target     string            `json:"target"`
 	Request    map[string]string `json:"request"`
 	Context    map[string]string `json:"context,omitempty"`
@@ -32,7 +33,7 @@ type Recording struct {
 // RecordingFrom captures a completed run as a Recording.
 func RecordingFrom(r Run) Recording {
 	rec := Recording{
-		ScenarioID: r.ScenarioID, Scenario: r.Scenario, Protocol: r.Protocol,
+		ScenarioID: r.ScenarioID, Scenario: r.Scenario, Protocol: r.Protocol, Message: r.Message,
 		Target: r.Target, Context: r.Context, Outcome: r.Outcome, At: r.At,
 	}
 	for _, m := range r.Messages {
@@ -85,8 +86,13 @@ func ReadRecordings(path string) ([]Recording, error) {
 		return nil, err
 	}
 	defer f.Close()
+	return ParseRecordings(f)
+}
+
+// ParseRecordings reads a JSON Lines cassette.
+func ParseRecordings(r io.Reader) ([]Recording, error) {
 	var recs []Recording
-	dec := json.NewDecoder(bufio.NewReader(f))
+	dec := json.NewDecoder(bufio.NewReader(r))
 	for {
 		var r Recording
 		if err := dec.Decode(&r); err == io.EOF {

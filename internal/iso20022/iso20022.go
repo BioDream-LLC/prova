@@ -437,3 +437,24 @@ func orToday(d string) string {
 }
 
 func upper(s string) string { return strings.ToUpper(strings.TrimSpace(s)) }
+
+// Record is the request as the flat record scenarios use (the inverse of FromRecord), with only the
+// fields that are set. The message kind travels separately, as a scenario's Message does.
+func (r Request) Record() map[string]string {
+	out := map[string]string{}
+	for k, v := range map[string]string{
+		"MsgId": r.MsgId, "EndToEndId": r.EndToEndId, "UETR": r.UETR, "Amount": r.Amount, "Currency": r.Currency,
+		"ValueDate": r.ValueDate, "DebtorAcct": r.DebtorAcct, "CreditAcct": r.CreditAcct, "DebtorBIC": r.DebtorBIC,
+		"CreditBIC": r.CreditBIC, "DebtorIBAN": r.DebtorIBAN, "CreditIBAN": r.CreditIBAN, "DebtorRTN": r.DebtorRTN,
+		"CreditRTN": r.CreditRTN, "DebtorName": r.DebtorName, "CreditorName": r.CreditorName, "ServiceLevel": r.ServiceLevel,
+		"LocalInstrument": r.LocalInstrument, "ChargeBearer": r.ChargeBearer, "Remittance": r.Remittance,
+		"OrgnlEndToEndId": r.OrgnlEndToEndId, "Reason": r.Reason, "MandateId": r.MandateId, "MandateDate": r.MandateDate,
+		"SequenceType": r.SequenceType, "CreditorSchemeId": r.CreditorSchemeId, "Account": r.Account, "ReportKind": r.ReportKind,
+		"FromDate": r.FromDate, "ToDate": r.ToDate,
+	} {
+		if v != "" {
+			out[k] = v
+		}
+	}
+	return out
+}
