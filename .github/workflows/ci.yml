@@ -30,6 +30,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Fails on the first attempt (retry check)
+        run: test "${{ github.run_attempt }}" != "1"
       - uses: pnpm/action-setup@v4
         with: { version: 9 }
       - uses: actions/setup-node@v4
