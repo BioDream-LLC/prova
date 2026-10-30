@@ -1,34 +1,24 @@
-# Suites, Load and Replay
+# Suites
 
-## Suites
+## Running a suite
 
 A suite runs a set of scenarios as one batch against a target and aggregates the result. The aggregate is **fail** if any scenario failed, **indeterminate** if any was indeterminate and none failed, and **pass** otherwise. Each scenario's run is stored with its proof and linked to the suite execution, so a failed certification run can be reopened months later exactly as it was.
 
-prova ships thirteen packs — regression, controls, field validation, and returns, cancellations and status for ISO 20022; regression, card controls, and reversals and network management for ISO 8583; regression, order controls and the order lifecycle for FIX; and a CBPR+ readiness pack across the ISO 20022 flows. They are listed in the [Suite Reference](#suite-reference). The CBPR+ readiness pack is prova's own, built from the controls above; it is not SWIFT's certification test set. Run one from the **Suites** screen, choosing another target if needed, or from CI:
+prova ships 27 packs, listed in the [Suite Reference](#suite-reference). Run one from the **Suites** screen, choosing another target if needed, or from CI:
 
 ```
 prova run --suite regression-iso20022 --junit results.xml
 ```
 
-## Load tests
+## The packs
 
-A load test runs one scenario many times across a chosen concurrency and reports throughput and latency percentiles — p50, p95, p99 and the maximum — with the spread of verdicts.
+| Area | Packs |
+|---|---|
+| ISO 20022 | regression; controls; field validation; identifiers and amounts (twenty countries' IBANs, BICs, every currency exponent, the one-cent boundary); returns, cancellations and status; payment initiation; direct debits; account reporting |
+| ISO 8583 | regression; card controls; card numbers, expiry and boundaries; card security (formats); card cryptography (PIN, MAC, cryptogram verification); reversals and network |
+| FIX | regression; order controls; order fields; order lifecycle; mass cancel; session rules; FIX 4.2 regression; FIX 5.0 SP2 regression |
+| Certification-style | CBPR+ readiness; SEPA readiness (against `sepa-host`); FedNow readiness (against `fednow-host`); a Visa-style and a Mastercard-style card pack (against `visa-switch` and `mc-switch`) |
 
-```
-prova run --scenario pacs008-within-balance --target cbpr-uat --load 500 --concurrency 16
-```
+The certification-style packs are prova's own, built from the controls in this manual and from the schemes' public rules. They are not the schemes' certification test sets, which the schemes license to their members; a pass is evidence you can show, not a certificate a scheme issued.
 
-Every request in a load test is still judged. A host that is correct one request at a time and approves an over-balance payment under concurrency shows up as failures in the spread, which is the defect a functional suite cannot find. The individual requests are not stored — a load test can be large — but its summary is, and appears on the Reports screen.
-
-## Record and replay
-
-prova can capture a run or a whole suite as a **cassette** and re-prove it later with no target at all:
-
-```
-prova run --suite regression-iso20022 --record cassette.jsonl
-prova run --replay cassette.jsonl
-```
-
-A cassette is JSON Lines: one exchange per line, with the request, the seeded context and the exact normalised response. Replay re-judges each exchange against the current casebook and produces a full, certified proof. That turns captured traffic into a regression pack, and lets a change to the rules be checked against yesterday's responses without touching a host.
-
-> A cassette contains whatever the request and response contained. Treat one recorded from production traffic as production data.
+A suite runs every scenario against its own target, whatever target a scenario was written for, so the same card controls run in the generic, Visa-style and Mastercard-style dialects. Load runs and the replay of captured traffic are in [Load and replay](#load-and-replay).

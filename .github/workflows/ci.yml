@@ -1,0 +1,37 @@
+name: ci
+
+# Vets and tests every push and pull request: the Go packages (both verdict engines, every shipped
+# scenario against the simulated targets, the schema validator against its libxml2 corpus, the card
+# cryptography against its oracle vectors) and the web interface (typecheck and build).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd internal)" || { gofmt -l cmd internal; exit 1; }
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm, cache-dependency-path: web/pnpm-lock.yaml }
+      - run: cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build

@@ -21,7 +21,9 @@ On the **Scenarios** screen choose a scenario — filter by protocol or search �
 prova run --scenario pacs008-over-balance --target cbpr-uat
 ```
 
-prova ships 75 scenarios: 36 for ISO 20022, 22 for ISO 8583 and 17 for FIX. Every one is listed in the [Scenario Reference](#scenario-reference); each passes against the compliant simulated target of its protocol, and every one the compliant target refuses fails (or is indeterminate) against the defective one.
+prova ships 331 scenarios: 128 for ISO 20022, 126 for ISO 8583 and 77 for FIX. Every one is listed in the [Scenario Reference](#scenario-reference); each passes against the compliant simulated target it was written for — the generic switch unless it names the Visa-style or Mastercard-style one, a SEPA or FedNow host, or a FIX 4.2 or 5.0 venue — and every one the compliant target refuses fails (or is indeterminate) against the defective one. On the Scenarios screen a scenario written for a particular target starts on it.
+
+Some are written one by one; the rest are generated families: the same control across every value that matters, such as twenty countries' IBANs with right and wrong check digits, each currency exponent, card numbers of 13 to 19 digits, every PIN block format, MAC algorithm and cryptogram version on each dialect, and the FIX controls and session rules on each FIX version. A generated scenario is an ordinary one, with a stated expectation, and is tested like the rest.
 
 ## Scripting
 

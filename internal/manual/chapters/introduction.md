@@ -22,12 +22,14 @@ That matters to the people who sign off on a release: a release manager, an audi
 
 Everything below is in the one binary. Each line names the chapter that covers it.
 
-- 66 shipped scenarios and eleven suites across credit transfers, returns, cancellations and status requests; card authorisations, purchases, reversals and network messages; and orders, cancels, replaces and status requests — [suites](#suites-load-and-replay).
+- 331 shipped scenarios and 27 suites across credit transfers, direct debits, returns, cancellations, status requests, initiations and account reports; card authorisations, purchases, reversals and network messages with PIN, MAC and chip cryptograms; and orders, cancels, replaces, status requests, mass cancels and the FIX session rules — [scenarios](#scenarios-and-scripting), [suites](#suites).
 - Scenarios written in JavaScript or Lua, with standards-valid synthetic data — [scenarios](#scenarios-and-scripting).
-- ISO 20022 (pacs.008 / pacs.002), ISO 8583 (0100 / 0110) and FIX 4.4 with a real session layer — [protocols](#protocols).
-- MT103 ↔ pacs.008 transformation for the ISO 20022 migration — [protocols](#protocols).
+- ISO 20022 (fifteen messages), ISO 8583 in generic, Visa-style and Mastercard-style dialects, and FIX 4.2, 4.4 and 5.0 SP2 with a real session layer — [protocols](#protocols).
+- Eight MT ↔ MX transformations for the ISO 20022 migration — [protocols](#protocols).
+- Message validation against the official schemas, the CBPR+, SEPA and FedNow rules and your own usage-guideline schema — [validating](#validating-messages).
+- PIN blocks, MACs, EMV cryptograms and an HSM client — [card security](#card-security).
 - Verdicts decided by a casebook, re-decided by a second independent engine, and certified by a SAT-backed re-check — [verdicts](#verdicts-and-proofs).
-- Regression and certification suites, load tests, and record & replay — [suites](#suites-load-and-replay).
+- Regression and certification-style suites, load tests, and replay of captured traffic — [suites](#suites), [load and replay](#load-and-replay).
 - A database of every run and its proof, with reports, CSV export and an activity log — [reports](#reports-and-the-activity-log).
 - Local, OpenID Connect and SAML sign-in with three roles — [accounts](#accounts-and-signing-in).
 - A headless runner for CI that writes JUnit and fails the build on a failed proof — [the command line](#the-command-line).
@@ -35,7 +37,7 @@ Everything below is in the one binary. Each line names the chapter that covers i
 
 ## How to read this manual
 
-Read [Getting Started](#getting-started) first; it takes ten minutes and ends with a failed proof you caused on purpose. [Verdicts and Proofs](#verdicts-and-proofs) is the chapter that explains what prova is actually telling you, and is worth reading before relying on a verdict. The chapters after that can be read as needed. The last chapters are generated from the running code — the shipped scenarios, suites and every server option — so they cannot describe something that does not exist.
+Read [Getting Started](#getting-started) first; it takes ten minutes and ends with a failed proof you caused on purpose. [Verdicts and Proofs](#verdicts-and-proofs) is the chapter that explains what prova is actually telling you, and is worth reading before relying on a verdict. The chapters after that can be read as needed. The last chapters are generated from the running code — the shipped scenarios, suites, simulated targets and every server option — so they cannot describe something that does not exist.
 
 ## Conventions
 

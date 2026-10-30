@@ -36,5 +36,20 @@ TradingView lightweight-charts, @xyflow/react, @tanstack/react-table, lucide and
 others, under the MIT, ISC, BSD and Apache-2.0 licences), listed with their
 licences in web/pnpm-lock.yaml.
 
+The ISO 20022 message schemas in internal/validate/xsd are the official schemas
+published by ISO 20022 (iso20022.org), taken from the moov-io/iso20022 and
+moov-io/fedwire20022 repositories (Apache License 2.0), unchanged.
+
+The card-security test vectors (internal/cardcrypto/testdata) were computed with
+psec and pyemv (MIT), the ISO 8583 dialect vectors (internal/iso8583/testdata)
+with pyiso8583 (MIT), and the HSM client is tested against the pythales
+simulator (LGPL); these are test oracles, run outside prova and not included
+in it. The MT940 test reads prova's output with mt-940 (BSD) in the same way.
+The test keys in internal/testkeys are published test values, not real keys.
+
+The SEPA rules follow the European Payments Council's public implementation
+guidelines; the FedNow rules follow the FedNow Service operating procedures.
+prova is not endorsed by the EPC or the Federal Reserve.
+
 ISO 20022, ISO 8583, FIX and SWIFT are standards and trademarks of their
 respective owners, named here only to say what this software reads and writes.
