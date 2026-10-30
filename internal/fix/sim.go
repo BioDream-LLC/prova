@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -169,12 +170,30 @@ func (s *Sim) nextExec() string {
 	return fmt.Sprintf("%06d", s.exec)
 }
 
+// session is one client's session state at the venue.
+type session struct {
+	bs, applVer    string // the client's BeginString and DefaultApplVerID
+	sender, target string // the venue's comp ids (the client's, reversed)
+	seq            int    // the venue's next outgoing MsgSeqNum
+	expect         int    // the next MsgSeqNum the venue expects from the client
+}
+
+func (ss *session) out(msg []byte) []byte {
+	ss.seq++
+	return Rebrand(msg, ss.bs)
+}
+
+// handle runs one FIX session. A compliant venue enforces the session rules a counterparty may rely
+// on: an incoming MsgSeqNum lower than expected ends the session (Logout) unless the message is a
+// possible duplicate, which is then ignored; a possible duplicate must carry OrigSendingTime (Reject
+// 373=1); comp ids must match the session's (Reject 373=9 and Logout); a message whose CheckSum fails is
+// ignored, as garbled; a gap is answered by a ResendRequest. A defective venue checks none of it.
 func (s *Sim) handle(c net.Conn) {
 	defer c.Close()
 	r := bufio.NewReader(c)
-	seq := 1
-	// The venue's comp ids are the client's, reversed; filled in on Logon.
-	sender, target := "VENUE", "PROVA"
+	ss := &session{seq: 1, expect: 1, sender: "VENUE", target: "PROVA", bs: beginString}
+	lax := s.Mode == "approve-all"
+	write := func(msg []byte) bool { _, err := c.Write(ss.out(msg)); return err == nil }
 	for {
 		raw, err := readMessage(r)
 		if err != nil {
@@ -182,71 +201,120 @@ func (s *Sim) handle(c net.Conn) {
 		}
 		m, err := parse(raw)
 		if err != nil {
-			return
+			if lax { // the defective venue does not check the CheckSum at all
+				m = parseLax(raw)
+			} else {
+				continue // garbled: ignore it and keep the session, as the session rules require
+			}
 		}
-		switch m[TagMsgType] {
-		case MsgLogon:
-			sender, target = m[TagTargetCompID], m[TagSenderCompID]
-			if sender == "" {
-				sender = "VENUE"
-			}
-			if target == "" {
-				target = "PROVA"
-			}
-			// Echo the client's session version (FIX.4.4 or FIXT.1.1 for FIX 5.0) and application version.
-			bs := m[TagBeginString]
-			if bs == "" {
-				bs = beginString
-			}
-			if _, err := c.Write(LogonV(bs, m[TagDefaultApplVerID], seq, sender, target, now())); err != nil {
+		seq, _ := strconv.Atoi(m[TagMsgSeqNum])
+		t := now()
+		if m[TagMsgType] == MsgLogon {
+			ss.sender, ss.target = orDefault(m[TagTargetCompID], "VENUE"), orDefault(m[TagSenderCompID], "PROVA")
+			ss.bs, ss.applVer = orDefault(m[TagBeginString], beginString), m[TagDefaultApplVerID]
+			ss.expect = seq + 1
+			if !write(LogonV(ss.bs, ss.applVer, ss.seq, ss.sender, ss.target, t)) {
 				return
 			}
-			seq++
+			continue
+		}
+		if !lax {
+			switch {
+			case m[TagTargetCompID] != ss.sender || m[TagSenderCompID] != ss.target:
+				write(SessionReject(ss.bs, ss.seq, ss.sender, ss.target, t, seq, strconv.Itoa(TagTargetCompID), m[TagMsgType], RejectCompIDProblem, "CompID problem"))
+				write(Logout(ss.bs, ss.seq, ss.sender, ss.target, t, "CompID problem"))
+				return
+			case seq < ss.expect && m[TagPossDupFlag] != "Y":
+				write(Logout(ss.bs, ss.seq, ss.sender, ss.target, t, fmt.Sprintf("MsgSeqNum too low, expecting %d but received %d", ss.expect, seq)))
+				return
+			case m[TagPossDupFlag] == "Y" && m[TagOrigSendingTime] == "":
+				ss.expect = max(ss.expect, seq+1)
+				if !write(SessionReject(ss.bs, ss.seq, ss.sender, ss.target, t, seq, strconv.Itoa(TagOrigSendingTime), m[TagMsgType], RejectRequiredTagMissing, "PossDupFlag=Y without OrigSendingTime")) {
+					return
+				}
+				continue
+			case seq < ss.expect:
+				continue // a possible duplicate of a message already processed: ignore it
+			case seq > ss.expect:
+				// A gap: ask for the missing messages, then carry on with this one.
+				if !write(ResendRequest(ss.bs, ss.seq, ss.sender, ss.target, t, ss.expect, seq-1)) {
+					return
+				}
+			}
+		}
+		ss.expect = seq + 1
+		var out []byte
+		switch m[TagMsgType] {
 		case MsgResendRequest:
 			// Answer a resend request with an administrative SequenceReset in gap-fill mode, advancing
-			// the peer past the requested range (prova's sim replays nothing application-level).
-			bs := m[TagBeginString]
-			if bs == "" {
-				bs = beginString
-			}
+			// the peer past the requested range (prova's venue replays nothing application-level).
 			end, _ := strconv.Atoi(m[TagEndSeqNo])
-			if _, err := c.Write(SequenceResetGapFill(bs, seq, sender, target, now(), end+1)); err != nil {
-				return
+			out = SequenceResetGapFill(ss.bs, ss.seq, ss.sender, ss.target, t, end+1)
+		case MsgSequenceReset:
+			if n, err := strconv.Atoi(m[TagNewSeqNo]); err == nil {
+				if n < ss.expect && m[TagGapFillFlag] != "Y" && !lax {
+					out = SessionReject(ss.bs, ss.seq, ss.sender, ss.target, t, seq, strconv.Itoa(TagNewSeqNo), MsgSequenceReset, RejectValueIncorrect, "NewSeqNo is lower than expected")
+				} else {
+					ss.expect = n
+				}
 			}
-			seq++
 		case MsgTestRequest:
-			if _, err := c.Write(Heartbeat(seq, sender, target, now(), m[TagTestReqID])); err != nil {
-				return
-			}
-			seq++
+			out = Heartbeat(ss.seq, ss.sender, ss.target, t, m[TagTestReqID])
 		case MsgCancelRequest, MsgReplaceRequest, MsgStatusRequest:
-			if _, err := c.Write(s.respond(seq, sender, target, m)); err != nil {
-				return
+			out = s.respond(ss.seq, ss.sender, ss.target, m)
+		case MsgMassCancelRequest:
+			if ss.bs == BeginString42 && !lax {
+				// OrderMassCancelRequest arrived in FIX 4.3: a FIX 4.2 session has no such message.
+				out = SessionReject(ss.bs, ss.seq, ss.sender, ss.target, t, seq, "", MsgMassCancelRequest, RejectInvalidMsgType, "Invalid MsgType for FIX.4.2")
+			} else {
+				out = s.massCancel(ss.seq, ss.sender, ss.target, m)
 			}
-			seq++
 		case MsgNewOrderSingle:
 			fill, rej, text := s.Decide(m)
-			var out []byte
 			switch {
 			case !fill:
-				out = ExecReject(seq, sender, target, now(), m, s.nextExec(), rej, text)
+				out = ExecReject(ss.seq, ss.sender, ss.target, t, m, s.nextExec(), rej, text)
 			case s.Mode != "approve-all" && s.Partial[m[TagSymbol]]:
 				// A partial fill: half the order quantity, the rest left working.
 				q, _ := strconv.ParseInt(m[TagOrderQty], 10, 64)
-				cum := q / 2
-				if cum < 1 {
-					cum = 1
-				}
-				out = ExecPartialFill(seq, sender, target, now(), m, s.nextExec(), cum)
+				out = ExecPartialFill(ss.seq, ss.sender, ss.target, t, m, s.nextExec(), max(q/2, 1))
 			default:
-				out = ExecFill(seq, sender, target, now(), m, s.nextExec())
+				out = ExecFill(ss.seq, ss.sender, ss.target, t, m, s.nextExec())
 			}
-			if _, err := c.Write(out); err != nil {
-				return
-			}
-			seq++
-		default:
-			// ignore anything else (Heartbeat, Logout, ...)
+		}
+		if out != nil && !write(out) {
+			return
 		}
 	}
+}
+
+// massCancel answers an OrderMassCancelRequest: every open order (530=7), or every open order in one
+// listed instrument (530=1). An unlisted instrument is refused with 532=1.
+func (s *Sim) massCancel(seq int, sender, target string, m map[int]string) []byte {
+	sym := m[TagSymbol]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m[TagMassCancelRequestType] == "1" && s.Listed != nil && !s.Listed[sym] && s.Mode != "approve-all" {
+		return MassCancelReport(seq, sender, target, now(), m, "0", "1", 0)
+	}
+	n := 0
+	for _, o := range s.Orders {
+		if (o.Status == "0" || o.Status == "1") && (m[TagMassCancelRequestType] != "1" || o.Symbol == sym) {
+			n++
+		}
+	}
+	return MassCancelReport(seq, sender, target, now(), m, orDefault(m[TagMassCancelRequestType], "7"), "", n)
+}
+
+// parseLax reads tag=value pairs without checking the CheckSum.
+func parseLax(raw []byte) map[int]string {
+	m := map[int]string{}
+	for _, p := range strings.Split(string(raw), soh) {
+		if k, v, ok := strings.Cut(p, "="); ok {
+			if tag, err := strconv.Atoi(k); err == nil {
+				m[tag] = v
+			}
+		}
+	}
+	return m
 }

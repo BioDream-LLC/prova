@@ -285,6 +285,9 @@ func reportDiffers(ctx, resp map[string]string) bool {
 	if n := get(ctx, "statementEntries"); n != "" && n != get(resp, "entries") {
 		return true
 	}
+	if n := get(ctx, "affectedOrders"); n != "" && get(resp, "decision") == "accepted" && n != get(resp, "affectedOrders") {
+		return true
+	}
 	return false
 }
 

@@ -318,6 +318,13 @@ func (e *Engine) execOnce(ctx context.Context, sc Scenario, targetName string) (
 	}, nil
 }
 
+func orDefaultStr(s, d string) string {
+	if s == "" {
+		return d
+	}
+	return s
+}
+
 // rawText is a message as the interface shows it: as text when it is printable (ISO 20022 XML, FIX,
 // ASCII ISO 8583), else as a hex dump (the binary Visa and Mastercard dialects).
 func rawText(b []byte) string {
@@ -375,6 +382,12 @@ func (sc Scenario) MessageKind() string {
 var fixNames = map[string]string{
 	"D": "NewOrderSingle(D)", "F": "OrderCancelRequest(F)", "G": "OrderCancelReplaceRequest(G)",
 	"H": "OrderStatusRequest(H)", "8": "ExecutionReport(8)", "9": "OrderCancelReject(9)", "3": "Reject(3)",
+	"q": "OrderMassCancelRequest(q)", "r": "OrderMassCancelReport(r)", "5": "Logout(5)", "(none)": "no reply",
+	"session:seq-too-low":     "NewOrderSingle(D), MsgSeqNum too low",
+	"session:possdup-no-time": "NewOrderSingle(D), PossDupFlag without OrigSendingTime",
+	"session:possdup-replay":  "NewOrderSingle(D), resent as a possible duplicate",
+	"session:wrong-comp-id":   "NewOrderSingle(D), wrong TargetCompID",
+	"session:bad-checksum":    "NewOrderSingle(D), garbled CheckSum",
 }
 
 func messageName(protocol, kind string) string {
@@ -392,6 +405,9 @@ func responseName(protocol string, f map[string]string) string {
 		return f["MTI"]
 	case "fix":
 		return messageName("fix", f["35"])
+	}
+	if k := f["replyKind"]; k != "" {
+		return k
 	}
 	if _, ok := f["Conf"]; ok {
 		return "camt.029"
@@ -418,6 +434,16 @@ func responseSummary(protocol string, f map[string]string) string {
 		return f["MTI"] + " DE39=" + f["DE39"]
 	case "fix":
 		switch {
+		case f["rejectReason"] == "IGNORED":
+			return "no reply: the venue ignored the message"
+		case f["35"] == "5":
+			return "Logout: " + orDefaultStr(f["58"], "session ended")
+		case f["35"] == "3":
+			return "session Reject SessionRejectReason=" + f["373"]
+		case f["35"] == "r" && f["decision"] == "rejected":
+			return "OrderMassCancelReport refused, MassCancelRejectReason=" + f["532"]
+		case f["35"] == "r":
+			return "OrderMassCancelReport, " + f["533"] + " orders cancelled"
 		case f["35"] == "9":
 			return "OrderCancelReject CxlRejReason=" + f["102"]
 		case f["decision"] == "rejected":
@@ -427,7 +453,17 @@ func responseSummary(protocol string, f map[string]string) string {
 		}
 		return "ExecReport ExecType=" + f["150"] + " OrdStatus=" + f["39"]
 	default:
-		kind, sts := "pacs.002 ", f["TxSts"]
+		switch f["replyKind"] {
+		case "camt.052", "camt.053", "camt.054":
+			s := f["replyKind"] + " " + f["reportedAccount"]
+			if b := f["reportedBalance"]; b != "" {
+				s += " closing " + b + " " + f["Ccy"]
+			}
+			return s + ", " + f["entries"] + " entries"
+		case "admi.002":
+			return "admi.002 message reject / " + f["rejectReason"]
+		}
+		kind, sts := orDefaultStr(f["replyKind"], "pacs.002")+" ", f["TxSts"]
 		if c, ok := f["Conf"]; ok {
 			kind, sts = "camt.029 ", c
 		}

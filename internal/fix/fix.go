@@ -199,8 +199,16 @@ func FromRecord(r map[string]string) Request {
 	}
 }
 
-// msgType accepts a FIX MsgType value or its message name.
+// msgType accepts a FIX MsgType value or its message name. Session scenarios ("session:...") pass
+// through unchanged: they are NewOrderSingles the adapter sends with a deliberate session fault.
 func msgType(s string) string {
+	if strings.HasPrefix(s, "session:") {
+		return s
+	}
+	switch s {
+	case "q":
+		return MsgMassCancelRequest
+	}
 	switch strings.ToLower(s) {
 	case "f", "ordercancelrequest":
 		return MsgCancelRequest
@@ -208,6 +216,8 @@ func msgType(s string) string {
 		return MsgReplaceRequest
 	case "h", "orderstatusrequest":
 		return MsgStatusRequest
+	case "ordermasscancelrequest":
+		return MsgMassCancelRequest
 	default:
 		return MsgNewOrderSingle
 	}
@@ -316,6 +326,8 @@ func EncodeRequest(seq int, sender, target, now string, req Request) []byte {
 			{TagSymbol, req.Symbol},
 			{TagSide, req.Side},
 		})
+	case MsgMassCancelRequest:
+		return EncodeMassCancel(seq, sender, target, now, req)
 	}
 	return EncodeOrder(seq, sender, target, now, req)
 }
@@ -425,6 +437,11 @@ type Status struct {
 	CumQty       string
 	LeavesQty    string
 	Text         string
+	// Session level: a Reject's SessionRejectReason and the tag it names.
+	SessionRejectReason string
+	RefTagID            string
+	// Order mass cancel report.
+	MassCancelResponse, MassCancelRejectReason, TotalAffectedOrders string
 }
 
 // DecodeResponse decodes an ExecutionReport or Reject into a Status.
@@ -443,6 +460,12 @@ func DecodeResponse(raw []byte) (Status, error) {
 		CumQty:       m[TagCumQty],
 		LeavesQty:    m[TagLeavesQty],
 		Text:         m[TagText],
+
+		SessionRejectReason:    m[TagSessionRejectReason],
+		RefTagID:               m[TagRefTagID],
+		MassCancelResponse:     m[TagMassCancelResponse],
+		MassCancelRejectReason: m[TagMassCancelRejectReason],
+		TotalAffectedOrders:    m[TagTotalAffectedOrders],
 	}, nil
 }
 
@@ -456,7 +479,32 @@ func (s Status) Fields() map[string]string {
 		"39":  s.OrdStatus,
 		"150": s.ExecType,
 	}
-	rejected := s.MsgType == MsgReject || s.MsgType == MsgCancelReject || s.OrdStatus == "8" || s.ExecType == "8"
+	switch s.MsgType {
+	case MsgLogout:
+		// The venue ended the session instead of answering: a refusal, with LOGOUT as its reason.
+		f["decision"], f["rejectReason"] = "rejected", "LOGOUT"
+		if s.Text != "" {
+			f["58"] = s.Text
+		}
+		return f
+	case MsgMassCancelReport:
+		f["531"], f["533"] = s.MassCancelResponse, s.TotalAffectedOrders
+		if s.MassCancelResponse == "0" {
+			f["decision"], f["rejectReason"], f["532"] = "rejected", orDefault(s.MassCancelRejectReason, "REJECT"), s.MassCancelRejectReason
+		} else {
+			f["decision"], f["affectedOrders"] = "accepted", s.TotalAffectedOrders
+		}
+		return f
+	case MsgReject:
+		// A session-level Reject: its reason is the SessionRejectReason (373).
+		f["decision"], f["rejectReason"] = "rejected", orDefault(s.SessionRejectReason, "REJECT")
+		f["373"], f["371"] = s.SessionRejectReason, s.RefTagID
+		if s.Text != "" {
+			f["58"] = s.Text
+		}
+		return f
+	}
+	rejected := s.MsgType == MsgCancelReject || s.OrdStatus == "8" || s.ExecType == "8"
 	if rejected {
 		f["decision"] = "rejected"
 		reason := s.OrdRejReason
@@ -483,6 +531,13 @@ func (s Status) Fields() map[string]string {
 		}
 	}
 	return f
+}
+
+func orDefault(s, d string) string {
+	if s == "" {
+		return d
+	}
+	return s
 }
 
 // notionalMinor returns price*qty in integer minor units, the economic size the venue checks against

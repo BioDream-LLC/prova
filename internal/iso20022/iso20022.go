@@ -352,7 +352,7 @@ func DecodeStatus(raw []byte) (Status, error) {
 // Fields flattens a Status into the normalized, assertable form every verdict backend understands,
 // including the canonical decision keys shared across protocols.
 func (s Status) Fields() map[string]string {
-	f := map[string]string{"MsgId": s.MsgId}
+	f := map[string]string{"MsgId": s.MsgId, "replyKind": s.Kind}
 	switch s.Kind {
 	case KindCamt052, KindCamt053, KindCamt054:
 		f["decision"] = "accepted"

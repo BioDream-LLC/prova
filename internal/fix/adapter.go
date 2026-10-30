@@ -3,6 +3,7 @@ package fix
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -88,13 +89,18 @@ func (Adapter) Connect(ctx context.Context, target adapter.Target, sess adapter.
 		r:      bufio.NewReader(nc),
 		sender: param("SenderCompID", "PROVA"),
 		target: param("TargetCompID", "VENUE"),
+		bs:     param("BeginString", BeginString44),
 		seq:    1,
+	}
+	appl := param("DefaultApplVerID", "")
+	if c.bs == BeginStringT11 && appl == "" {
+		appl = ApplVer50SP2
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		_ = nc.SetDeadline(dl)
 	}
 	// Logon handshake: send Logon, expect a Logon back.
-	if _, err := nc.Write(Logon(c.seq, c.sender, c.target, now())); err != nil {
+	if _, err := nc.Write(LogonV(c.bs, appl, c.seq, c.sender, c.target, now())); err != nil {
 		_ = nc.Close()
 		return nil, fmt.Errorf("fix: logon send: %w", err)
 	}
@@ -121,23 +127,62 @@ type conn struct {
 	r      *bufio.Reader
 	sender string
 	target string
+	bs     string // the session's BeginString: FIX.4.2, FIX.4.4 or FIXT.1.1
 	seq    int
 	order  map[int]string
 	lastTx time.Time
+	// before is a message sent ahead of the scenario's own, whose reply is read and set aside (the
+	// original of a possible-duplicate resend).
+	before []byte
+	// quiet means silence is a valid answer: a compliant venue ignores a garbled message or a duplicate.
+	quiet bool
 }
 
+// The session scenarios: a NewOrderSingle sent with one deliberate session fault.
+const (
+	SessionSeqTooLow     = "session:seq-too-low"     // a MsgSeqNum already used, without PossDupFlag: the venue must log out
+	SessionPossDupNoTime = "session:possdup-no-time" // PossDupFlag=Y without OrigSendingTime: Reject 373=1
+	SessionPossDupReplay = "session:possdup-replay"  // a processed order resent as a possible duplicate: ignored
+	SessionWrongCompID   = "session:wrong-comp-id"   // TargetCompID is not the venue's: Reject 373=9 and Logout
+	SessionBadChecksum   = "session:bad-checksum"    // a garbled CheckSum: the message must be ignored
+)
+
 // Encode builds the message the template names (a NewOrderSingle when it names none) from the
-// scenario record, and remembers it for correlation.
+// scenario record, in the session's version, and remembers it for correlation.
 func (c *conn) Encode(tmpl adapter.Template, data adapter.Record) ([]byte, error) {
 	req := FromRecord(data)
 	if tmpl.Name != "" && tmpl.Name != "fix" {
 		req.MsgType = msgType(tmpl.Name)
 	}
-	msg := EncodeRequest(c.seq, c.sender, c.target, now(), req)
+	kind := req.MsgType
+	if strings.HasPrefix(kind, "session:") {
+		req.MsgType = MsgNewOrderSingle
+	}
+	target := c.target
+	if kind == SessionWrongCompID {
+		target = "NOT-" + c.target
+	}
+	t := now()
+	msg := Rebrand(EncodeRequest(c.seq, c.sender, target, t, req), c.bs)
 	c.seq++
-	m, err := parse(msg)
-	if err != nil {
-		return nil, err
+	c.before, c.quiet = nil, false
+	switch kind {
+	case SessionSeqTooLow:
+		msg = WithSeq(msg, 1) // 1 was the Logon's
+	case SessionPossDupNoTime:
+		msg = WithPossDup(msg, "")
+	case SessionPossDupReplay:
+		c.before = msg
+		msg = WithPossDup(msg, t)
+		c.quiet = true
+	case SessionBadChecksum:
+		msg = CorruptChecksum(msg)
+		c.quiet = true
+	case SessionWrongCompID, "":
+	}
+	m := parseLax(msg)
+	if m[TagMsgType] == "" {
+		return nil, fmt.Errorf("fix: encoded message has no MsgType")
 	}
 	c.order = m
 	return msg, nil
@@ -146,6 +191,15 @@ func (c *conn) Encode(tmpl adapter.Template, data adapter.Record) ([]byte, error
 func (c *conn) Send(ctx context.Context, msg []byte) (adapter.Handle, error) {
 	if dl, ok := ctx.Deadline(); ok {
 		_ = c.c.SetWriteDeadline(dl)
+	}
+	if c.before != nil {
+		// Send the original and set its execution report aside before the resend.
+		if _, err := c.c.Write(c.before); err != nil {
+			return adapter.Handle{}, fmt.Errorf("fix: send: %w", err)
+		}
+		if _, err := c.await(ctx, false); err != nil {
+			return adapter.Handle{}, fmt.Errorf("fix: the original before the resend: %w", err)
+		}
 	}
 	c.lastTx = time.Now()
 	if _, err := c.c.Write(msg); err != nil {
@@ -158,15 +212,34 @@ func (c *conn) Send(ctx context.Context, msg []byte) (adapter.Handle, error) {
 	return adapter.Handle{ID: id}, nil
 }
 
+// quietWindow is how long prova waits for a venue to answer a message it should ignore.
+const quietWindow = 400 * time.Millisecond
+
 // Await reads session messages, answering TestRequests with Heartbeats, until the ExecutionReport,
-// OrderCancelReject or session Reject that resolves the request arrives.
+// OrderCancelReject, OrderMassCancelReport, session Reject or Logout that resolves the request arrives.
+// When silence is the right answer (a garbled message, a duplicate) and none comes within a short
+// window, the result is a refusal with reason IGNORED.
 func (c *conn) Await(ctx context.Context, _ adapter.Handle) (adapter.Decoded, error) {
+	return c.await(ctx, c.quiet)
+}
+
+func (c *conn) await(ctx context.Context, quiet bool) (adapter.Decoded, error) {
 	if dl, ok := ctx.Deadline(); ok {
 		_ = c.c.SetReadDeadline(dl)
+	}
+	if quiet {
+		_ = c.c.SetReadDeadline(time.Now().Add(quietWindow))
 	}
 	for {
 		raw, err := readMessage(c.r)
 		if err != nil {
+			var ne net.Error
+			if quiet && (errors.As(err, &ne) && ne.Timeout() || errors.Is(err, io.EOF)) {
+				return adapter.Decoded{
+					Fields: map[string]string{"decision": "rejected", "rejectReason": "IGNORED", "35": "(none)"},
+					Meta:   map[string]string{"latencyMs": fmt.Sprintf("%.3f", float64(time.Since(c.lastTx).Microseconds())/1000)},
+				}, nil
+			}
 			return adapter.Decoded{}, fmt.Errorf("fix: await: %w", err)
 		}
 		m, err := parse(raw)
@@ -180,7 +253,7 @@ func (c *conn) Await(ctx context.Context, _ adapter.Handle) (adapter.Decoded, er
 			continue
 		case MsgHeartbeat:
 			continue
-		case MsgExecutionReport, MsgReject, MsgCancelReject:
+		case MsgExecutionReport, MsgReject, MsgCancelReject, MsgMassCancelReport, MsgLogout:
 			lat := time.Since(c.lastTx)
 			st, err := DecodeResponse(raw)
 			if err != nil {

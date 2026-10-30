@@ -35,8 +35,10 @@ var Specs = []Spec{
 	{"card-switch-bug", "iso8583", "approves everything (known defect)", nil},
 	{"visa-switch", "iso8583", "compliant switch, Visa-style dialect (BCD, EBCDIC, binary bitmaps, 22-byte header)", map[string]string{"dialect": "visa"}},
 	{"mc-switch", "iso8583", "compliant switch, Mastercard-style dialect (EBCDIC, binary bitmaps)", map[string]string{"dialect": "mastercard"}},
-	{"fix-venue", "fix", "compliant trading venue", nil},
-	{"fix-venue-bug", "fix", "fills, cancels and replaces everything (known defect)", nil},
+	{"fix-venue", "fix", "compliant trading venue (FIX 4.4)", nil},
+	{"fix-venue-bug", "fix", "fills, cancels and replaces everything, ignores the session rules (known defect)", nil},
+	{"fix42-venue", "fix", "compliant trading venue, FIX 4.2 session", map[string]string{"BeginString": "FIX.4.2"}},
+	{"fix50-venue", "fix", "compliant trading venue, FIX 5.0 SP2 over FIXT.1.1", map[string]string{"BeginString": "FIXT.1.1", "DefaultApplVerID": "9"}},
 }
 
 // The seeded state the shipped scenarios rely on.
@@ -59,9 +61,19 @@ func paymentHost(mode string) *iso20022.Sim {
 			"E2E-ORIG-PENDING":  {Amount: 9000, Status: "PDNG"},
 			"E2E-ORIG-RETURNED": {Amount: 9000, Status: "ACSC", Returned: true},
 		},
+		// Direct-debit mandates the debtors have signed (pacs.003).
+		Mandates: map[string]iso20022.Mandate{
+			"MNDT-1":       {Account: "ACC-EUR-1"},
+			"MNDT-REVOKED": {Account: "ACC-EUR-1", Revoked: true},
+			"MNDT-OTHER":   {Account: "ACC-EUR-OTHER"},
+			"MNDT-CLOSED":  {Account: "ACC-EUR-CLOSED"},
+		},
+		// Booked entries the account reports list (camt.052/053/054).
+		Entries: map[string]int{"ACC-EUR-1": 2},
 	}
 	s.MarkSeen("E2E-DUP") // the duplicate-instruction scenarios resubmit these ids
 	s.MarkSeen("E2E-DUP-009")
+	s.MarkSeen("E2E-DUP-010")
 	return s
 }
 
@@ -106,8 +118,11 @@ func venue(mode string) *fix.Sim {
 		Halted:    map[string]bool{"GLOBX": true},
 		Partial:   map[string]bool{"PARTL": true},
 		Orders: map[string]fix.Order{
-			"ORD-OPEN":   {Account: "ACC1", Symbol: "ACME", Status: "0"},
-			"ORD-FILLED": {Account: "ACC1", Symbol: "ACME", Status: "2"},
+			"ORD-OPEN":     {Account: "ACC1", Symbol: "ACME", Status: "0"},
+			"ORD-OPEN-2":   {Account: "ACC1", Symbol: "ACME", Status: "0"},
+			"ORD-PART-1":   {Account: "ACC1", Symbol: "PARTL", Status: "1"},
+			"ORD-FILLED":   {Account: "ACC1", Symbol: "ACME", Status: "2"},
+			"ORD-CANCELED": {Account: "ACC1", Symbol: "ACME", Status: "4"},
 		},
 	}
 	s.MarkSeen("ORD-USED")
@@ -132,7 +147,7 @@ func build(name string) server {
 		return cardSwitch("", iso8583.Visa)
 	case "mc-switch":
 		return cardSwitch("", iso8583.Mastercard)
-	case "fix-venue":
+	case "fix-venue", "fix42-venue", "fix50-venue":
 		return venue("")
 	case "fix-venue-bug":
 		return venue("approve-all")

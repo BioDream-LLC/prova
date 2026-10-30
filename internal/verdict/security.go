@@ -129,5 +129,8 @@ func reportMismatch(c Case) []string {
 	if want := ctx(c, "statementEntries"); want != "" && strings.TrimSpace(resp["entries"]) != want {
 		out = append(out, "the report lists "+orDefault(resp["entries"], "no")+" entries, not "+want)
 	}
+	if want := ctx(c, "affectedOrders"); want != "" && accepted(c) && strings.TrimSpace(resp["affectedOrders"]) != want {
+		out = append(out, "the mass cancel reports "+orDefault(resp["affectedOrders"], "no")+" orders cancelled, not "+want)
+	}
 	return out
 }
