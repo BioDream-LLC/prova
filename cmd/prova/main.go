@@ -59,6 +59,10 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "import" {
 		os.Exit(importCLI(os.Args[2:]))
 	}
+	// Subcommand: `prova catalogue` lists the ISO 20022 catalogue and writes samples and schemas.
+	if len(os.Args) > 1 && os.Args[1] == "catalogue" {
+		os.Exit(catalogueCLI(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	// Subcommand: `prova hsm` checks an HSM that speaks the payShield host commands.
 	if len(os.Args) > 1 && os.Args[1] == "hsm" {
 		os.Exit(hsmCLI(os.Args[2:]))

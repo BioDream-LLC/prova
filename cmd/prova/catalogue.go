@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/biodream-llc/prova/internal/engine"
@@ -95,4 +97,90 @@ func registerCatalogue(mux *http.ServeMux, eng *engine.Engine, acting func(*http
 		activity(r, "sent a catalogue message", fmt.Sprintf("%s (%s) on %s: %s (%s)", m.Kind, body.Variant, run.Target, run.Outcome, run.ID))
 		writeJSON(w, http.StatusOK, run)
 	})
+}
+
+const catalogueUsage = `usage:
+  prova catalogue list [AREA]             every message's latest version (all versions with -all)
+  prova catalogue sample KIND [VARIANT]   a generated instance: minimal (default), full, or a broken variant
+  prova catalogue schema KIND             the official XSD
+  prova catalogue variants                the variants and what each breaks
+KIND is a version (sese.023.001.11) or a message (sese.023, meaning its latest version).`
+
+// catalogueCLI is `prova catalogue`.
+func catalogueCLI(args []string, stdout, stderr io.Writer) int {
+	all := false
+	var rest []string
+	for _, a := range args {
+		if a == "-all" || a == "--all" {
+			all = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	if len(rest) == 0 {
+		fmt.Fprintln(stderr, catalogueUsage)
+		return 2
+	}
+	switch rest[0] {
+	case "list":
+		n := 0
+		for _, m := range validate.Catalogue() {
+			if (all || m.Latest) && (len(rest) < 2 || m.Area == rest[1]) {
+				fmt.Fprintf(stdout, "%-16s %s\n", m.Kind, m.Name)
+				n++
+			}
+		}
+		if n == 0 {
+			fmt.Fprintln(stderr, "no such business area; the areas are:", strings.Join(sortedAreas(), " "))
+			return 1
+		}
+		return 0
+	case "variants":
+		for _, v := range validate.VariantNames {
+			fmt.Fprintf(stdout, "%-12s %s\n", v, validate.VariantDescriptions[v])
+		}
+		return 0
+	case "sample", "schema":
+		if len(rest) < 2 {
+			fmt.Fprintln(stderr, catalogueUsage)
+			return 2
+		}
+		m, ok := validate.LookupMessage(rest[1])
+		if !ok {
+			fmt.Fprintln(stderr, rest[1]+" is not in the ISO 20022 catalogue")
+			return 1
+		}
+		var raw []byte
+		var err error
+		if rest[0] == "schema" {
+			raw, err = validate.CatalogueSchema(m.Kind)
+		} else {
+			v := "minimal"
+			if len(rest) > 2 {
+				v = rest[2]
+			}
+			if _, known := validate.VariantDescriptions[v]; !known {
+				fmt.Fprintln(stderr, "unknown variant "+v+"; see prova catalogue variants")
+				return 2
+			}
+			raw, err = validate.Variant(m.Kind, v)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		_, _ = stdout.Write(raw)
+		return 0
+	}
+	fmt.Fprintln(stderr, catalogueUsage)
+	return 2
+}
+
+func sortedAreas() []string {
+	out := make([]string, 0, len(validate.Areas))
+	for a := range validate.Areas {
+		out = append(out, a)
+	}
+	sort.Strings(out)
+	return out
 }

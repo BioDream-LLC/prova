@@ -71,3 +71,17 @@ func TestCatalogueAPI(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogueCLI(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := catalogueCLI([]string{"list", "fxtr"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "fxtr.014") {
+		t.Fatalf("list: %d %s %s", code, out.String(), errb.String())
+	}
+	out.Reset()
+	if code := catalogueCLI([]string{"sample", "camt.053", "drop"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "BkToCstmrStmt") {
+		t.Fatalf("sample: %d %s", code, errb.String())
+	}
+	if code := catalogueCLI([]string{"sample", "zzzz.001"}, &out, &errb); code != 1 {
+		t.Errorf("unknown message: %d", code)
+	}
+}
