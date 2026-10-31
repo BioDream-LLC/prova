@@ -63,11 +63,20 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "catalogue" {
 		os.Exit(catalogueCLI(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	// Subcommand: `prova guideline` manages the usage-guideline library.
+	if len(os.Args) > 1 && os.Args[1] == "guideline" {
+		os.Exit(guidelineCLI(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	// Subcommand: `prova hsm` checks an HSM that speaks the payShield host commands.
 	if len(os.Args) > 1 && os.Args[1] == "hsm" {
 		os.Exit(hsmCLI(os.Args[2:]))
 	}
 
+	// Anything else that is not a flag is a mistyped subcommand: say so instead of starting a server.
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		fmt.Fprintf(os.Stderr, "prova: unknown command %q (commands: run, validate, catalogue, guideline, import, hsm, user, manual; no command starts the server)\n", os.Args[1])
+		os.Exit(2)
+	}
 	o := defineServerFlags(flag.CommandLine)
 	flag.Parse()
 	addr, tlsCert, tlsKey, httpRedirect, noSim := o.addr, o.tlsCert, o.tlsKey, o.httpRedirect, o.noSim
@@ -125,6 +134,8 @@ func main() {
 	signIn.Register(mux)
 	registerCardCrypto(mux, *o.hsmAddr, *o.hsmHeader)
 	registerCatalogue(mux, eng, acting, activity)
+	library := validate.OpenLibrary(*af.dataDir)
+	registerGuidelines(mux, library, activity)
 	registerReports(mux, st)
 	if err := registerManual(mux, eng, flag.CommandLine); err != nil {
 		log.Fatalf("prova: manual: %v", err)
@@ -317,15 +328,22 @@ func main() {
 	})
 	mux.HandleFunc("POST /api/validate", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Message string `json:"message"`
-			Profile string `json:"profile"`
-			Schema  string `json:"schema"` // an optional usage-guideline XSD
+			Message   string `json:"message"`
+			Profile   string `json:"profile"`
+			Schema    string `json:"schema"`    // an optional usage-guideline XSD
+			Guideline string `json:"guideline"` // or a guideline from the library, by id
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 			return
 		}
-		rep, err := validate.MessageWith([]byte(body.Message), body.Profile, []byte(body.Schema))
+		var rep validate.Report
+		var err error
+		if body.Guideline != "" {
+			rep, err = library.MessageWithGuideline([]byte(body.Message), body.Profile, body.Guideline)
+		} else {
+			rep, err = validate.MessageWith([]byte(body.Message), body.Profile, []byte(body.Schema))
+		}
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return

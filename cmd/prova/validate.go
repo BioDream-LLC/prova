@@ -16,9 +16,11 @@ func validateCLI(args []string) int {
 	fs := flag.NewFlagSet("prova validate", flag.ContinueOnError)
 	profile := fs.String("profile", "", "usage-guideline profile to apply on top of the schema: CBPR+, SEPA, SEPA-Inst or FedNow")
 	guideline := fs.String("schema", "", "also validate against this usage-guideline schema (a restricted XSD, e.g. a MyStandards export)")
+	libID := fs.String("guideline", "", "also validate against a usage guideline from the library, by id (see prova guideline list)")
+	dataDir := fs.String("data", defaultDataDir(), "data directory, for guidelines imported into the library")
 	sarif := fs.Bool("sarif", false, "write findings as SARIF 2.1.0 instead of text")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: prova validate [--profile CBPR+|SEPA|SEPA-Inst|FedNow] [--schema guideline.xsd] [--sarif] <message.xml>")
+		fmt.Fprintln(os.Stderr, "usage: prova validate [--profile CBPR+|SEPA|SEPA-Inst|FedNow] [--schema guideline.xsd | --guideline ID] [--sarif] <message.xml>")
 		fmt.Fprintln(os.Stderr, "       prova validate [--profile ...] -   # read the message from stdin")
 		fs.PrintDefaults()
 	}
@@ -43,7 +45,12 @@ func validateCLI(args []string) int {
 	}
 
 	var ug []byte
-	if *guideline != "" {
+	if *libID != "" {
+		if ug, err = validate.OpenLibrary(*dataDir).Schema(*libID); err != nil {
+			fmt.Fprintf(os.Stderr, "prova validate: %v\n", err)
+			return 2
+		}
+	} else if *guideline != "" {
 		if ug, err = os.ReadFile(*guideline); err != nil {
 			fmt.Fprintf(os.Stderr, "prova validate: %v\n", err)
 			return 2

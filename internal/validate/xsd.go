@@ -12,6 +12,7 @@
 package validate
 
 import (
+	"bytes"
 	"embed"
 	"encoding/base64"
 	"encoding/xml"
@@ -49,12 +50,14 @@ type Finding struct {
 
 // Report is the outcome of validating one message.
 type Report struct {
-	Kind      string    `json:"kind"`                // message short name, e.g. pacs.008.001.08
-	Namespace string    `json:"namespace"`           // the document's target namespace
-	Profile   string    `json:"profile"`             // the usage-guideline profile applied, e.g. "CBPR+"
-	Schema    bool      `json:"schema"`              // whether a schema was found and applied
-	Guideline bool      `json:"guideline,omitempty"` // whether a usage-guideline schema was applied too
-	Findings  []Finding `json:"findings"`
+	Kind      string `json:"kind"`                // message short name, e.g. pacs.008.001.08
+	Namespace string `json:"namespace"`           // the document's target namespace
+	Profile   string `json:"profile"`             // the usage-guideline profile applied, e.g. "CBPR+"
+	Schema    bool   `json:"schema"`              // whether a schema was found and applied
+	Guideline bool   `json:"guideline,omitempty"` // whether a usage-guideline schema was applied too
+	// GuidelineID names the library guideline applied, when it came from the library.
+	GuidelineID string    `json:"guidelineId,omitempty"`
+	Findings    []Finding `json:"findings"`
 }
 
 // Valid reports whether the message passed with no error-severity findings.
@@ -144,10 +147,25 @@ type xsdElement struct {
 }
 
 type xsdComplex struct {
-	Name          string            `xml:"name,attr"`
-	Sequence      *xsdGroup         `xml:"sequence"`
-	Choice        *xsdGroup         `xml:"choice"`
-	SimpleContent *xsdSimpleContent `xml:"simpleContent"`
+	Name           string             `xml:"name,attr"`
+	Sequence       *xsdGroup          `xml:"sequence"`
+	Choice         *xsdGroup          `xml:"choice"`
+	SimpleContent  *xsdSimpleContent  `xml:"simpleContent"`
+	ComplexContent *xsdComplexContent `xml:"complexContent"`
+}
+
+// xsdComplexContent is a complex type derived from another: a restriction restates the content it
+// keeps (how usage-guideline schemas narrow a message), an extension adds content after its base's.
+type xsdComplexContent struct {
+	Restriction *xsdDerivation `xml:"restriction"`
+	Extension   *xsdDerivation `xml:"extension"`
+}
+
+type xsdDerivation struct {
+	Base     string    `xml:"base,attr"`
+	Sequence *xsdGroup `xml:"sequence"`
+	Choice   *xsdGroup `xml:"choice"`
+	Attrs    []xsdAttr `xml:"attribute"`
 }
 
 type xsdGroup struct {
@@ -172,6 +190,8 @@ type xsdSimpleContent struct {
 		Base  string    `xml:"base,attr"`
 		Attrs []xsdAttr `xml:"attribute"`
 	} `xml:"extension"`
+	// A restriction narrows a simple-content type: facets on its value, its attributes restated.
+	Restriction *xsdRestriction `xml:"restriction"`
 }
 
 type xsdAttr struct {
@@ -181,21 +201,24 @@ type xsdAttr struct {
 }
 
 type xsdSimple struct {
-	Name        string `xml:"name,attr"`
-	Restriction struct {
-		Base         string `xml:"base,attr"`
-		Enumerations []struct {
-			Value string `xml:"value,attr"`
-		} `xml:"enumeration"`
-		MinLength      *facetVal `xml:"minLength"`
-		MaxLength      *facetVal `xml:"maxLength"`
-		Length         *facetVal `xml:"length"`
-		Pattern        *facetVal `xml:"pattern"`
-		TotalDigits    *facetVal `xml:"totalDigits"`
-		FractionDigits *facetVal `xml:"fractionDigits"`
-		MinInclusive   *facetVal `xml:"minInclusive"`
-		MaxInclusive   *facetVal `xml:"maxInclusive"`
-	} `xml:"restriction"`
+	Name        string         `xml:"name,attr"`
+	Restriction xsdRestriction `xml:"restriction"`
+}
+
+type xsdRestriction struct {
+	Base         string `xml:"base,attr"`
+	Enumerations []struct {
+		Value string `xml:"value,attr"`
+	} `xml:"enumeration"`
+	MinLength      *facetVal `xml:"minLength"`
+	MaxLength      *facetVal `xml:"maxLength"`
+	Length         *facetVal `xml:"length"`
+	Pattern        *facetVal `xml:"pattern"`
+	TotalDigits    *facetVal `xml:"totalDigits"`
+	FractionDigits *facetVal `xml:"fractionDigits"`
+	MinInclusive   *facetVal `xml:"minInclusive"`
+	MaxInclusive   *facetVal `xml:"maxInclusive"`
+	Attrs          []xsdAttr `xml:"attribute"`
 }
 
 type facetVal struct {
@@ -317,70 +340,235 @@ func parseSchema(raw []byte) (*schema, error) {
 	if err := xml.Unmarshal(raw, &xs); err != nil {
 		return nil, err
 	}
+	q := newQNames(raw, xs.TargetNS)
 	s := &schema{ns: xs.TargetNS, globals: map[string]string{}, simples: map[string]*simpleType{}, complexs: map[string]*complexType{}}
 	for _, e := range xs.Elements {
-		s.globals[e.Name] = e.Type
+		s.globals[e.Name] = q.name(e.Type)
 		if e.Name == "Document" {
-			s.root = e.Type
+			s.root = q.name(e.Type)
 		}
 	}
-	for _, c := range xs.ComplexTypes {
-		ct := &complexType{name: c.Name}
+	content := func(seq, choice *xsdGroup) ([]particle, bool) {
 		switch {
-		case c.Sequence != nil:
-			ct.particles = groupParticles(c.Sequence, false)
-		case c.Choice != nil:
+		case seq != nil:
+			return q.particles(groupParticles(seq, false)), true
+		case choice != nil:
 			// a top-level choice: exactly one of the alternatives
-			ct.particles = []particle{{isChoice: true, min: 1, max: 1, choiceAlt: groupParticles(c.Choice, true)}}
-		default:
-			ct.empty = true
-		case c.SimpleContent != nil:
-			ct.simpleBase = c.SimpleContent.Extension.Base
+			return []particle{{isChoice: true, min: 1, max: 1, choiceAlt: q.particles(groupParticles(choice, true))}}, true
+		}
+		return nil, false
+	}
+	var extensions []*xsdComplex
+	type simpleRestriction struct {
+		name, base string
+		res        *xsdRestriction
+	}
+	var simpleRestrictions []simpleRestriction
+	for i := range xs.ComplexTypes {
+		c := &xs.ComplexTypes[i]
+		ct := &complexType{name: c.Name}
+		if ps, ok := content(c.Sequence, c.Choice); ok {
+			ct.particles = ps
+		} else if c.SimpleContent != nil && c.SimpleContent.Restriction != nil {
+			simpleRestrictions = append(simpleRestrictions, simpleRestriction{c.Name, q.name(c.SimpleContent.Restriction.Base), c.SimpleContent.Restriction})
+		} else if c.SimpleContent != nil {
+			ct.simpleBase = q.name(c.SimpleContent.Extension.Base)
 			for _, a := range c.SimpleContent.Extension.Attrs {
-				ct.attrs = append(ct.attrs, attrDef{name: a.Name, typ: a.Type, required: a.Use == "required"})
+				ct.attrs = append(ct.attrs, attrDef{name: a.Name, typ: q.name(a.Type), required: a.Use == "required"})
 			}
+		} else if cc := c.ComplexContent; cc != nil && cc.Restriction != nil {
+			if ps, ok := content(cc.Restriction.Sequence, cc.Restriction.Choice); ok {
+				ct.particles = ps
+			} else {
+				ct.empty = true
+			}
+			for _, a := range cc.Restriction.Attrs {
+				ct.attrs = append(ct.attrs, attrDef{name: a.Name, typ: q.name(a.Type), required: a.Use == "required"})
+			}
+		} else if cc != nil && cc.Extension != nil {
+			extensions = append(extensions, c) // completed below, once its base is known
+		} else {
+			ct.empty = true
 		}
 		s.complexs[c.Name] = ct
 	}
-	for _, st := range xs.SimpleTypes {
-		t := &simpleType{name: st.Name, base: st.Restriction.Base}
-		for _, e := range st.Restriction.Enumerations {
-			t.facet.enum = append(t.facet.enum, e.Value)
-		}
-		if v := st.Restriction.MinLength; v != nil {
-			t.facet.minLen, t.facet.hasMinLen = atoi(v.Value), true
-		}
-		if v := st.Restriction.MaxLength; v != nil {
-			t.facet.maxLen, t.facet.hasMaxLen = atoi(v.Value), true
-		}
-		if v := st.Restriction.Length; v != nil {
-			t.facet.length, t.facet.hasLength = atoi(v.Value), true
-		}
-		if v := st.Restriction.Pattern; v != nil {
-			re, lo, hi, err := compilePattern(v.Value)
-			if err != nil {
-				return nil, fmt.Errorf("simple type %s: pattern %q: %w", st.Name, v.Value, err)
+	// An extension's content is its base's, then its own; resolve chains in as many passes as they need.
+	for pass := 0; pass < 8 && len(extensions) > 0; pass++ {
+		var left []*xsdComplex
+		for _, c := range extensions {
+			ext := c.ComplexContent.Extension
+			base := s.complexs[q.name(ext.Base)]
+			if base == nil {
+				left = append(left, c)
+				continue
 			}
-			t.facet.patternSrc, t.facet.pattern, t.facet.patLenMin, t.facet.patLenMax = v.Value, re, lo, hi
+			ct := s.complexs[c.Name]
+			ct.particles = append(append([]particle(nil), base.particles...), func() []particle { p, _ := content(ext.Sequence, ext.Choice); return p }()...)
+			ct.attrs = append(append([]attrDef(nil), base.attrs...), ct.attrs...)
+			for _, a := range ext.Attrs {
+				ct.attrs = append(ct.attrs, attrDef{name: a.Name, typ: q.name(a.Type), required: a.Use == "required"})
+			}
+			ct.empty = len(ct.particles) == 0 && base.empty
 		}
-		if v := st.Restriction.TotalDigits; v != nil {
-			t.facet.totalDigits, t.facet.hasTotal = atoi(v.Value), true
+		extensions = left
+	}
+	// Some usage-guideline schemas (GEFEG exports) declare the Document type but no Document element.
+	if s.root == "" && len(s.globals) == 0 {
+		if _, ok := s.complexs["Document"]; ok {
+			s.root, s.globals["Document"] = "Document", "Document"
+		} else {
+			// a header guideline: its root is the AppHdr element
+			for name := range s.complexs {
+				if reHeaderType.MatchString(name) {
+					s.globals["AppHdr"] = name
+				}
+			}
 		}
-		if v := st.Restriction.FractionDigits; v != nil {
-			t.facet.fracDigits, t.facet.hasFrac = atoi(v.Value), true
-		}
-		if v := st.Restriction.MinInclusive; v != nil {
-			t.facet.minIncl, t.facet.hasMinIncl = v.Value, true
-		}
-		if v := st.Restriction.MaxInclusive; v != nil {
-			t.facet.maxIncl, t.facet.hasMaxIncl = v.Value, true
+	}
+	for _, st := range xs.SimpleTypes {
+		t, err := restrictionType(st.Name, q.name(st.Restriction.Base), st.Restriction)
+		if err != nil {
+			return nil, err
 		}
 		s.simples[st.Name] = t
+	}
+	// A simple-content restriction's value is its base's value type with the new facets: model it as
+	// an anonymous simple type over that, once every complex type is known.
+	for _, r := range simpleRestrictions {
+		base := s.complexs[r.base]
+		valueBase := "xs:string"
+		if base != nil && base.simpleBase != "" {
+			valueBase = base.simpleBase
+		} else if _, ok := s.simples[r.base]; ok || strings.HasPrefix(r.base, "xs:") {
+			valueBase = r.base
+		}
+		t, err := restrictionType(r.name+"#value", valueBase, *r.res)
+		if err != nil {
+			return nil, err
+		}
+		s.simples[t.name] = t
+		ct := s.complexs[r.name]
+		ct.simpleBase, ct.empty = t.name, false
+		restated := map[string]bool{}
+		for _, a := range r.res.Attrs {
+			restated[a.Name] = true
+			ct.attrs = append(ct.attrs, attrDef{name: a.Name, typ: q.name(a.Type), required: a.Use == "required"})
+		}
+		if base != nil {
+			for _, a := range base.attrs {
+				if !restated[a.name] {
+					ct.attrs = append(ct.attrs, a)
+				}
+			}
+		}
 	}
 	return s, nil
 }
 
+// restrictionType builds a simple type from a restriction's facets.
+func restrictionType(name, base string, r xsdRestriction) (*simpleType, error) {
+	t := &simpleType{name: name, base: base}
+	for _, e := range r.Enumerations {
+		t.facet.enum = append(t.facet.enum, e.Value)
+	}
+	if v := r.MinLength; v != nil {
+		t.facet.minLen, t.facet.hasMinLen = atoi(v.Value), true
+	}
+	if v := r.MaxLength; v != nil {
+		t.facet.maxLen, t.facet.hasMaxLen = atoi(v.Value), true
+	}
+	if v := r.Length; v != nil {
+		t.facet.length, t.facet.hasLength = atoi(v.Value), true
+	}
+	if v := r.Pattern; v != nil {
+		re, lo, hi, err := compilePattern(v.Value)
+		if err != nil {
+			return nil, fmt.Errorf("simple type %s: pattern %q: %w", name, v.Value, err)
+		}
+		t.facet.patternSrc, t.facet.pattern, t.facet.patLenMin, t.facet.patLenMax = v.Value, re, lo, hi
+	}
+	if v := r.TotalDigits; v != nil {
+		t.facet.totalDigits, t.facet.hasTotal = atoi(v.Value), true
+	}
+	if v := r.FractionDigits; v != nil {
+		t.facet.fracDigits, t.facet.hasFrac = atoi(v.Value), true
+	}
+	if v := r.MinInclusive; v != nil {
+		t.facet.minIncl, t.facet.hasMinIncl = v.Value, true
+	}
+	if v := r.MaxInclusive; v != nil {
+		t.facet.maxIncl, t.facet.hasMaxIncl = v.Value, true
+	}
+	return t, nil
+}
+
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
+
+const xsdNS = "http://www.w3.org/2001/XMLSchema"
+
+var reHeaderType = regexp.MustCompile(`^BusinessApplicationHeaderV\d+$`)
+
+// qnames resolves the prefixed names a schema uses for types: a name in the XML Schema namespace
+// becomes xs:NAME, whatever its prefix (xs:, xsd:, none); a name in the target namespace becomes its
+// local part, whatever its prefix (GEFEG exports write ct:Type); anything else keeps its {namespace}.
+type qnames struct {
+	prefixes map[string]string
+	target   string
+}
+
+func newQNames(raw []byte, target string) qnames {
+	q := qnames{prefixes: map[string]string{}, target: target}
+	d := xml.NewDecoder(bytes.NewReader(raw))
+	for {
+		tok, err := d.RawToken()
+		if err != nil {
+			return q
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			for _, a := range se.Attr {
+				switch {
+				case a.Name.Space == "xmlns":
+					q.prefixes[a.Name.Local] = a.Value
+				case a.Name.Space == "" && a.Name.Local == "xmlns":
+					q.prefixes[""] = a.Value
+				}
+			}
+			return q
+		}
+	}
+}
+
+func (q qnames) name(n string) string {
+	if n == "" {
+		return ""
+	}
+	prefix, local, found := strings.Cut(n, ":")
+	if !found {
+		prefix, local = "", n
+	}
+	ns, known := q.prefixes[prefix]
+	switch {
+	case !known && prefix == "xs":
+		return "xs:" + local // the conventional prefix, even when undeclared
+	case !known && prefix == "":
+		return local
+	case ns == xsdNS:
+		return "xs:" + local
+	case ns == q.target:
+		return local
+	case !known:
+		return n
+	}
+	return "{" + ns + "}" + local
+}
+
+func (q qnames) particles(ps []particle) []particle {
+	for i := range ps {
+		ps[i].typ = q.name(ps[i].typ)
+		ps[i].choiceAlt = q.particles(ps[i].choiceAlt)
+	}
+	return ps
+}
 
 // --- the schema registry (one per namespace) ----------------------------------------------
 

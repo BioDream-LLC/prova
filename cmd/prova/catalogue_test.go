@@ -85,3 +85,22 @@ func TestCatalogueCLI(t *testing.T) {
 		t.Errorf("unknown message: %d", code)
 	}
 }
+
+func TestGuidelineCLI(t *testing.T) {
+	dir := t.TempDir()
+	var out, errb bytes.Buffer
+	if code := guidelineCLI([]string{"-data", dir, "list", "pacs.008.001.08"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "tch-rtp/pacs.008.001.08") {
+		t.Fatalf("list: %d %s %s", code, out.String(), errb.String())
+	}
+	out.Reset()
+	if code := guidelineCLI([]string{"-data", dir, "add", "epc", "../../internal/validate/testdata/guidelines/epc-sct-interpsp-2023-pacs.008.001.08.xsd", "-name", "EPC SCT"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "added epc/") {
+		t.Fatalf("add: %d %s %s", code, out.String(), errb.String())
+	}
+	out.Reset()
+	if code := guidelineCLI([]string{"-data", dir, "remove", "epc"}, &out, &errb); code != 0 {
+		t.Fatalf("remove: %d %s", code, errb.String())
+	}
+	if code := guidelineCLI([]string{"-data", dir, "remove", "tch-rtp"}, &out, &errb); code != 1 {
+		t.Errorf("removing a bundled set: %d", code)
+	}
+}
