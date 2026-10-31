@@ -162,6 +162,28 @@ export interface Pair { mt: string; mx: string; name: string }
 
 export interface Profile { id: string; name: string; description: string; messages: string }
 
+export interface CatalogueMessage {
+  kind: string; namespace: string; base: string; area: string; root: string; name: string; version: string
+  latest: boolean; spoken: boolean
+}
+export interface Catalogue {
+  areas: Record<string, string>
+  messages: CatalogueMessage[]
+  variants: { id: string; description: string }[]
+}
+
+async function getText(url: string): Promise<string> {
+  const res = await fetch(url)
+  checkAuth(res)
+  const body = await res.text()
+  if (!res.ok) {
+    let msg = body
+    try { msg = JSON.parse(body).error ?? body } catch { /* not JSON: keep the text */ }
+    throw new Error(msg)
+  }
+  return body
+}
+
 export interface TestKeys {
   pinKey: string; pinKeyAES: string; macKey: string; macKeyAES: string; imk: string
   cards: { PAN: string; PIN: string; Cryptogram: string }[]; versions: string[]
@@ -250,6 +272,10 @@ export const api = {
   validateExamples: () => getJSON<ValidationExample[]>('/api/validate/examples'),
   validate: (message: string, profile: string, schema = '') =>
     postJSON<ValidationReport>('/api/validate', { message, profile, schema }),
+  catalogue: () => getJSON<Catalogue>('/api/catalogue'),
+  catalogueSample: (kind: string, variant: string) => getText(`/api/catalogue/${encodeURIComponent(kind)}/sample?variant=${encodeURIComponent(variant)}`),
+  catalogueRun: (kind: string, variant: string, target: string, xml = '') =>
+    postJSON<Run>('/api/catalogue/run', { kind, variant, target, xml }),
   counterparty: (protocol: string, message: string, decision: string, reason: string) =>
     postJSON<{ raw: string; fields: Record<string, string> }>('/api/counterparty', { protocol, message, decision, reason }),
 }

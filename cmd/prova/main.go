@@ -120,6 +120,7 @@ func main() {
 	mux := http.NewServeMux()
 	signIn.Register(mux)
 	registerCardCrypto(mux, *o.hsmAddr, *o.hsmHeader)
+	registerCatalogue(mux, eng, acting, activity)
 	registerReports(mux, st)
 	if err := registerManual(mux, eng, flag.CommandLine); err != nil {
 		log.Fatalf("prova: manual: %v", err)

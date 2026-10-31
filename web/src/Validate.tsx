@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { ShieldCheck, ShieldAlert, Download, CheckCircle2, FileUp, X } from 'lucide-react'
 import { Page, Card, Pill } from './ui'
 import { api, type ValidationReport, type ValidationExample, type Severity, type Profile } from './api'
@@ -20,11 +21,14 @@ export function Validate() {
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
 
+  // A message handed over from the Catalogue screen opens in place of the first example.
+  const handed = (useLocation().state as { xml?: string } | null)?.xml
   useEffect(() => {
+    if (handed) { setMessage(handed); setProfile('') }
     api.validateExamples().then((ex) => {
       setExamples(ex)
       const first = ex.find((e) => e.name === 'pacs.008-valid') ?? ex[0]
-      if (first) setMessage(first.xml)
+      if (first && !handed) setMessage(first.xml)
     }).catch((e) => setError(String(e)))
     api.validateProfiles().then((p) => setProfiles(p.profiles)).catch(() => undefined)
   }, [])

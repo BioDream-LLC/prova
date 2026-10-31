@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import {
   Activity as ActivityIcon, BarChart3, BookOpen, ExternalLink, FileCode2, History, LayoutDashboard, Share2, Table2,
-  ListChecks, ArrowRightLeft, LogOut, Users as UsersIcon, ShieldCheck, Radio, KeyRound,
+  ListChecks, ArrowRightLeft, LogOut, Users as UsersIcon, ShieldCheck, Radio, KeyRound, Library,
 } from 'lucide-react'
 import { Dashboard } from './Dashboard'
 import { Scenarios } from './Scenarios'
@@ -11,6 +11,7 @@ import { Messages } from './Messages'
 import { Proof } from './Proof'
 import { Transform } from './Transform'
 import { Validate } from './Validate'
+import { Catalogue } from './Catalogue'
 import { Counterparty } from './Counterparty'
 import { CardSecurity } from './CardSecurity'
 import { Reports } from './Reports'
@@ -25,6 +26,7 @@ const nav = [
   { to: '/scenarios', label: 'Scenarios', icon: FileCode2 },
   { to: '/suites', label: 'Suites', icon: ListChecks },
   { to: '/messages', label: 'Messages', icon: Table2 },
+  { to: '/catalogue', label: 'Catalogue', icon: Library },
   { to: '/validate', label: 'Validate', icon: ShieldCheck },
   { to: '/transform', label: 'Transform', icon: ArrowRightLeft },
   { to: '/card-security', label: 'Card security', icon: KeyRound },
@@ -181,6 +183,7 @@ export function App() {
           <Route path="/scenarios" element={<Scenarios />} />
           <Route path="/suites" element={<Suites />} />
           <Route path="/messages" element={<Messages />} />
+          <Route path="/catalogue" element={<Catalogue />} />
           <Route path="/validate" element={<Validate />} />
           <Route path="/transform" element={<Transform />} />
           <Route path="/counterparty" element={<Counterparty />} />

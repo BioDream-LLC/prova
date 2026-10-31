@@ -131,6 +131,9 @@ func (r Request) uetr() string {
 
 // Encode renders the request as the ISO 20022 message its Kind names.
 func Encode(req Request) ([]byte, error) {
+	if req.XML != "" || req.Variant != "" {
+		return encodeCatalogue(req) // the instance is given or generated, whatever the message
+	}
 	switch req.Kind {
 	case "", KindPacs008:
 		return encode008(req)

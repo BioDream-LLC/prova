@@ -96,6 +96,9 @@ func MessageWith(raw []byte, profile string, guideline []byte) (Report, error) {
 	}
 	rep.Profile = name
 	rep.Findings = append(rep.Findings, fs...)
+	if rep.Findings == nil {
+		rep.Findings = []Finding{} // a clean message has an empty list, not none
+	}
 	sortFindings(rep.Findings)
 	return rep, nil
 }

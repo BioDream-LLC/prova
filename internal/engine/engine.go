@@ -399,7 +399,8 @@ var fixNames = map[string]string{
 // official schema: SchemaValid, and SchemaError naming the first error. A host must refuse a message
 // that fails it; both verdict engines read SchemaValid as a field-validity failure.
 func schemaEvidence(sc Scenario, msg []byte) map[string]string {
-	if sc.Protocol != "iso20022" || !iso20022.IsCatalogue(sc.MessageKind()) {
+	given := sc.Request["XML"] != "" || sc.Request["Variant"] != ""
+	if sc.Protocol != "iso20022" || !given && !iso20022.IsCatalogue(sc.MessageKind()) {
 		return sc.Request
 	}
 	out := make(map[string]string, len(sc.Request)+2)
