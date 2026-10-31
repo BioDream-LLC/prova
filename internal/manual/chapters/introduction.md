@@ -22,7 +22,7 @@ That matters to the people who sign off on a release: a release manager, an audi
 
 Everything below is in the one binary. Each line names the chapter that covers it.
 
-- 331 shipped scenarios and 27 suites across credit transfers, direct debits, returns, cancellations, status requests, initiations and account reports; card authorisations, purchases, reversals and network messages with PIN, MAC and chip cryptograms; and orders, cancels, replaces, status requests, mass cancels and the FIX session rules — [scenarios](#scenarios-and-scripting), [suites](#suites).
+- 1,745 shipped scenarios and 32 suites across credit transfers, direct debits, returns, cancellations, status requests, initiations and account reports; card authorisations, purchases, reversals and network messages with PIN, MAC and chip cryptograms; and orders, cancels, replaces, status requests, mass cancels and the FIX session rules — [scenarios](#scenarios-and-scripting), [suites](#suites).
 - Scenarios written in JavaScript or Lua, with standards-valid synthetic data — [scenarios](#scenarios-and-scripting).
 - ISO 20022 (fifteen messages), ISO 8583 in generic, Visa-style and Mastercard-style dialects, and FIX 4.2, 4.4 and 5.0 SP2 with a real session layer — [protocols](#protocols).
 - Eight MT ↔ MX transformations for the ISO 20022 migration — [protocols](#protocols).

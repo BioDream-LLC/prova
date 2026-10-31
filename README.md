@@ -11,10 +11,10 @@ behaved as it must.** A well-formed approval of a payment the account cannot cov
 names the rule it breaks and cites the evidence, and an independent SAT-backed check and a second rules engine
 confirm the verdict. It is not an AI explanation; nothing in prova guesses.
 
-**One 25 MB program, 28 MB of memory at rest.** The web console, the reference manual, the database, 331 scenarios, 27 suites and twelve
+**One 39 MB program.** The web console, the reference manual, the database, the whole ISO 20022 catalogue, 1,745 scenarios, 32 suites and twelve
 simulated targets are built in. Copy it, run it, open the browser.
 
-[![License](https://img.shields.io/badge/license-PolyForm%20Small%20Business%201.0.0-6366f1.svg)](LICENSE.md) [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg?logo=go&logoColor=white)](https://go.dev) [![Version](https://img.shields.io/badge/version-v0.3.0-orange.svg)](#build) [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#build) [![Protocols](https://img.shields.io/badge/protocols-ISO%2020022%20%7C%20ISO%208583%20%7C%20FIX%204.2%20to%205.0-22d3ee.svg)](#everything-it-does)
+[![License](https://img.shields.io/badge/license-PolyForm%20Small%20Business%201.0.0-6366f1.svg)](LICENSE.md) [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg?logo=go&logoColor=white)](https://go.dev) [![Version](https://img.shields.io/badge/version-v0.4.0-orange.svg)](#build) [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#build) [![Protocols](https://img.shields.io/badge/protocols-ISO%2020022%20%7C%20ISO%208583%20%7C%20FIX%204.2%20to%205.0-22d3ee.svg)](#everything-it-does)
 
 <a href="https://prova.perfuse.health:9443"><img src="docs/assets/buttons/try.svg" alt="Try prova now: the live demonstration, no install" width="300"></a>
 
@@ -22,7 +22,7 @@ simulated targets are built in. Copy it, run it, open the browser.
 
 <a href="https://prova.perfuse.health:9443/manual"><img src="docs/assets/buttons/manual.svg" alt="Read the prova reference manual" width="240"></a>&nbsp;<a href="#build"><img src="docs/assets/buttons/source.svg" alt="Build prova from source" width="240"></a>
 
-<sub><b>Download v0.3.0</b> for [Linux](https://github.com/BioDream-LLC/prova/releases/download/v0.3.0/prova_v0.3.0_linux_amd64.tar.gz) · [macOS, Apple Silicon](https://github.com/BioDream-LLC/prova/releases/download/v0.3.0/prova_v0.3.0_darwin_arm64.tar.gz) · [Windows](https://github.com/BioDream-LLC/prova/releases/download/v0.3.0/prova_v0.3.0_windows_amd64.tar.gz) — one file, nothing to install</sub>
+<sub><b>Download v0.4.0</b> for [Linux](https://github.com/BioDream-LLC/prova/releases/download/v0.4.0/prova_v0.4.0_linux_amd64.tar.gz) · [macOS, Apple Silicon](https://github.com/BioDream-LLC/prova/releases/download/v0.4.0/prova_v0.4.0_darwin_arm64.tar.gz) · [Windows](https://github.com/BioDream-LLC/prova/releases/download/v0.4.0/prova_v0.4.0_windows_amd64.tar.gz) — one file, nothing to install</sub>
 
 [**Why prova**](#why-prova) · [**What it does**](#everything-it-does) · [**What it looks like**](#what-it-looks-like) ·
 [**Running it**](#running-it) · [**How it compares**](#how-it-compares) · [**Security**](#security) · [**FAQ**](#faq)
@@ -68,7 +68,8 @@ defects, so the first ten minutes show prova catching them.
 - **FIX 4.2, 4.4 and 5.0 SP2** — tag=value with BodyLength and CheckSum; the session layer over FIX.4.2, FIX.4.4 and FIXT.1.1, with the session rules a venue must enforce (sequence numbers, possible duplicates, comp ids, garbled messages, gap recovery); NewOrderSingle, cancel, replace, status and order mass cancel, answered by ExecutionReport (fills and partial fills), OrderCancelReject, OrderMassCancelReport, session Reject or Logout.
 - **Card security** — ISO 9564 PIN blocks (formats 0, 1, 3 and AES format 4), ISO 9797-1 MACs and AES-CMAC, EMV cryptograms (Visa CVN 10 and 18, Mastercard CVN 16), Visa PVV and CVV. prova verifies them under seeded test keys, so a switch that approves a wrong PIN or a counterfeit chip is provably at fault. Checked against psec, pyemv and RFC 4493.
 - **HSMs** — a client for the Thales payShield host commands (diagnostics, PIN translation, PIN verification against a PVV, CVV verification), tested against the pythales simulator: `prova hsm`, or the Card security screen.
-- **Message validation** — the official ISO 20022 schema, then a usage-guideline profile (CBPR+, SEPA Credit Transfer, SEPA Instant, FedNow), then your own usage-guideline schema (a restricted XSD such as a MyStandards export). Findings name the rule, field and fix, and export as SARIF. The schema validator agrees with libxml2 on 363 messages.
+- **The whole ISO 20022 catalogue** — all 2,641 published schemas (707 messages in 31 business areas: payments, cash, securities, cards, trade, FX, reference data) ship inside the binary. Any message validates, gets a generated valid sample or a deliberately broken variant, and can be sent to a gateway that must acknowledge it (admi.007) or reject it (admi.002). The validator agrees with libxml2 on all 38,428 catalogue test cases.
+- **Message validation** — the official schema, then a usage-guideline profile (CBPR+, SEPA Credit Transfer, SEPA Instant, FedNow), then a usage-guideline schema from the library (TCH RTP bundled; import your own XSD or a MyStandards or EPC ZIP). Findings name the rule, field and fix, and export as SARIF.
 - **MT ↔ MX** — MT103 ↔ pacs.008, MT202 ↔ pacs.009, MT103 RETN ↔ pacs.004, MT192 ↔ camt.056, MT196 ↔ camt.029, MT900 and MT910 ↔ camt.054, MT940 ↔ camt.053; every MX output schema-valid, each transform listing what the mapping drops.
 
 **Verdicts**
@@ -79,7 +80,7 @@ defects, so the first ten minutes show prova catching them.
 - **Indeterminate** is an answer, with the evidence that would settle it.
 
 **Testing**
-- **331 scenarios** (128 ISO 20022, 126 ISO 8583, 77 FIX) and **27 suites**, each scenario run against a compliant and a defective target on every build. Generated families cover twenty countries' IBANs, every currency exponent, card numbers of 13 to 19 digits, every PIN block format, MAC and cryptogram version on each dialect, and the FIX controls and session rules on each FIX version.
+- **1,745 scenarios** (1,542 ISO 20022, 126 ISO 8583, 77 FIX) and **32 suites**, including a valid and a broken instance of every message in the ISO 20022 catalogue, each scenario run against a compliant and a defective target on every build. Generated families cover twenty countries' IBANs, every currency exponent, card numbers of 13 to 19 digits, every PIN block format, MAC and cryptogram version on each dialect, and the FIX controls and session rules on each FIX version.
 - **Twelve simulated targets**: a reference payment host and a defective one, a SEPA host and a FedNow participant that screen every message against the scheme's rules, a generic, a Visa-style and a Mastercard-style card switch and a defective one, and FIX 4.2, 4.4 and 5.0 SP2 venues and a defective one.
 - **Certification-style packs**: CBPR+, SEPA, FedNow, a Visa-style and a Mastercard-style card pack. They are prova's own; the schemes' certification cases are the schemes'.
 - Scenarios in **JavaScript or Lua**, sandboxed, with standards-valid synthetic data (Luhn PANs, IBANs, BICs) and reproducible seeds.
@@ -172,8 +173,8 @@ here.**
 | Simulated counterparties | twelve: payment hosts (reference, SEPA, FedNow), card switches (generic, Visa-style, Mastercard-style), FIX 4.2/4.4/5.0 venues, and a defective one per protocol | the schemes' own test hosts and the exact dialects of private networks |
 | Message coverage | 15 ISO 20022 messages, 4 ISO 8583 MTIs in three dialects, FIX 4.2, 4.4 and 5.0 SP2 with 5 request types | hundreds of MX messages; more ISO 8583 networks (Discover, JCB, UnionPay, domestic schemes); hundreds of FIX message types |
 | Field validation | ISO 4217, decimals, BIC, IBAN, Luhn, ABA routing numbers | — |
-| Schema & profile validation | official XSDs (libxml2-checked), CBPR+, SEPA, SEPA Inst and FedNow rules, your usage-guideline XSD, SARIF | every MyStandards guideline published, maintained by the vendor |
-| Scenario library | 331 scenarios, 27 suites | libraries of thousands of cases |
+| Schema & profile validation | all 2,641 ISO 20022 schemas (libxml2-checked), CBPR+, SEPA, SEPA Inst and FedNow rules, a usage-guideline library (TCH RTP bundled, imports of MyStandards and EPC ZIPs), SARIF | every MyStandards guideline published, maintained by the vendor |
+| Scenario library | 1,745 scenarios, 32 suites | libraries of thousands of cases |
 | Certification packs | prova's own CBPR+, SEPA, FedNow, Visa-style and Mastercard-style packs | the schemes' official certification test cases |
 | Card security | PIN blocks 0/1/3/4, ISO 9797-1 MACs, AES-CMAC, Visa CVN 10/18 and Mastercard CVN 16 cryptograms, PVV, CVV, verified by both engines; payShield HSM client | full EMV kernels (terminal risk management, CDA, offline data authentication); more HSM command sets |
 | Load testing | count or duration, set rate, persistent sessions, per-second timeline, replay of imported production traffic with masking | distributed load generation across many machines |

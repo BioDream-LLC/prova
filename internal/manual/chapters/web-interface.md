@@ -30,6 +30,10 @@ Eight MT ↔ MX pairs: choose one to load its sample, convert, and swap directio
 
 Paste or load an ISO 20022 message and check it against the official XML schema, a usage-guideline profile (CBPR+, SEPA, SEPA Inst or FedNow) and, if you add one, your own usage-guideline schema. Every finding names the rule, the field it points at and the fix. Bundled examples show both a clean pass and real findings, and the findings export as SARIF 2.1.0 for code scanning. The same engine backs `prova validate` on the command line. See [Validating messages](#validating-messages).
 
+## Catalogue
+
+Every message in the ISO 20022 catalogue by business area, with a valid sample or a broken variant of any version, its schema to download, a schema check, and a Send button that drives it at a target. See [Validating messages](#validating-messages).
+
 ## Card security
 
 PIN blocks, MACs, chip cryptograms, PVVs, CVVs and key check values, built and checked with the published test keys shown beside them, and the HSM check when the server has one. See [Card security](#card-security).

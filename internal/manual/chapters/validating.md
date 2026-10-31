@@ -75,3 +75,31 @@ hand.
 > What prova validates is bounded and stated plainly: it reads usage-guideline schemas but is not
 > SWIFT's MyStandards, and a clean result is not a guarantee a scheme will accept your message. It is
 > an independent check you can run yourself, that names its rules and shows its working.
+
+## The ISO 20022 catalogue
+
+prova carries every schema the ISO 20022 Registration Authority publishes: 2,641 versions of 707 messages in 31 business areas, from payments and cash management to securities, cards, trade services, FX and reference data. Any of them validates with no setup; the namespace of the message picks its schema, including the older `urn:swift:xsd:` and `urn:iso:std:iso:20022:xsd:` forms.
+
+For any version prova also builds instances: a minimal sample with only what the schema requires, a full one with every optional element once, and broken variants — a required element removed, an element the schema does not define, a code outside its list, a value that breaks its pattern or length, an impossible date, a malformed number, a duplicate, a missing attribute, two elements swapped. The validator's verdict on all of these, 38,428 cases over the 2,641 schemas, agrees with libxml2's.
+
+The **Catalogue** screen browses the areas and messages, shows any version's instance, checks it, and sends it to an ISO 20022 target, which answers as a network gateway does: an admi.007 receipt acknowledgement for a valid message, an admi.002 reject naming the first schema error otherwise. The catalogue suites send the latest version of every message both ways.
+
+```
+prova catalogue list sese                   # the latest version of every securities settlement message
+prova catalogue sample camt.053 full        # a full statement, valid against camt.053.001.12
+prova catalogue sample pacs.008 drop        # with a required element removed
+prova catalogue schema seev.031.001.14      # the official XSD
+```
+
+## The usage-guideline library
+
+A usage guideline is the restricted schema a market infrastructure publishes for the messages it accepts. prova bundles TCH's RTP guidelines (22 schemas, from moov-io/rtp20022, Apache-2.0). An administrator adds others — one XSD, or the ZIP a MyStandards or EPC download comes as — and prova keeps them in the data directory under `guidelines/`. Each schema is read when it is added: one prova cannot read, one with no Document, or one for a namespace outside the catalogue is left out, with the reason. Other files in a ZIP (PDFs, spreadsheets) are skipped.
+
+```
+prova guideline list pacs.008.001.08
+prova guideline add epc-sct-2025 SCT-InterPSP-2025.zip -name "EPC SCT inter-PSP 2025" -publisher "European Payments Council"
+prova validate --guideline epc-sct-2025/EPC115-06_2025_V1.0_pacs.008.001.08 payment.xml
+prova guideline remove epc-sct-2025
+```
+
+The reader follows the constructs guideline schemas use: complex and simple types narrowed by restriction, extensions, type names under any prefix, and GEFEG exports that declare the Document type but no Document element. On EPC and TCH guideline schemas its verdicts agree with libxml2's. prova does not ship the EPC's own schemas, whose terms allow non-commercial reuse only; download them from the EPC and import them.

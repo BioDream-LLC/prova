@@ -33,7 +33,7 @@ ship far more messages, dialects and cases. What prova has, and what is still mi
 | ISO 20022 validation | official XSDs (libxml2-checked on 363 messages), CBPR+, SEPA, SEPA Inst and FedNow rules, your usage-guideline XSD, SARIF | every published usage guideline maintained for you |
 | ISO 8583 | 0100, 0200, 0400, 0800 in generic, Visa-style and Mastercard-style dialects (pyiso8583-checked); PIN blocks 0/1/3/4, ISO 9797-1 MACs, AES-CMAC, Visa CVN 10/18 and Mastercard CVN 16 cryptograms verified; payShield HSM client | other networks' dialects; full EMV kernel (CDA, offline data authentication); more HSM command sets |
 | FIX | 4.2, 4.4 and 5.0 SP2: D, F, G, H, q; fills, partial fills, cancel rejects, mass cancel reports; the session rules | FIX 4.0/4.1, market data, FIXP and SBE |
-| Scenarios | 331 scenarios, 27 suites | case libraries of thousands; the schemes' official certification sets |
+| Scenarios | 1,745 scenarios, 32 suites | case libraries of thousands; the schemes' official certification sets |
 | Rules | 19 controls, written twice and cross-checked, including card cryptography | — |
 
 Beyond the categories, prova decides every verdict with **two independent engines** — its Go casebook

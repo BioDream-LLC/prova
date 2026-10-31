@@ -7,6 +7,8 @@ With no subcommand the binary is the server.
 | `prova [options]` | serve the web interface and API; the options are in [Server Options](#server-options) |
 | `prova run …` | run a suite, scenario, load test or replay headless, for CI |
 | `prova validate …` | validate an ISO 20022 message against the schema, a profile and a usage-guideline schema |
+| `prova catalogue …` | list the ISO 20022 catalogue; write a message's sample, broken variant or schema |
+| `prova guideline …` | manage the usage-guideline library |
 | `prova import …` | turn captured traffic into a cassette to replay |
 | `prova hsm …` | check an HSM that speaks the payShield host commands |
 | `prova user …` | manage accounts |
@@ -44,11 +46,16 @@ Point your pipeline at the JUnit file and a failed proof fails the build. `prova
 prova validate payment.xml
 prova validate --profile SEPA payment.xml
 prova validate --schema guideline.xsd payment.xml
+prova validate --guideline tch-rtp/pacs.008.001.08 payment.xml
 prova validate --profile CBPR+ --sarif payment.xml > findings.sarif
 cat payment.xml | prova validate -
 ```
 
 See [Validating messages](#validating-messages).
+
+## prova catalogue and prova guideline
+
+See [Validating messages](#validating-messages) for both.
 
 ## prova import
 
