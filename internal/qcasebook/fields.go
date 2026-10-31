@@ -19,6 +19,10 @@ func isUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
 
 // invalidInstruction reports whether any present field of the request fails validation.
 func invalidInstruction(r map[string]string) bool {
+	// A catalogue message carries the result of checking it against its official schema.
+	if strings.EqualFold(strings.TrimSpace(r["SchemaValid"]), "false") {
+		return true
+	}
 	ccy := strings.TrimSpace(r["Currency"])
 	if ccy != "" {
 		if _, ok := minorUnits[ccy]; !ok {

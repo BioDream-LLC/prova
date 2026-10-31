@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/biodream-llc/prova/internal/verdict"
@@ -90,11 +91,11 @@ func (e *Engine) RunSuite(ctx context.Context, suiteID, targetOverride string) (
 	res := SuiteResult{ID: s.ID, Name: s.Name, Target: target, At: time.Now().UTC(), Outcome: verdict.Pass,
 		RunID: fmt.Sprintf("s-%d", time.Now().UnixNano()), By: actorFrom(ctx)}
 	start := time.Now()
-	for _, scID := range s.Scenarios {
-		run, err := e.Run(ctx, scID, target)
-		if err != nil {
-			return SuiteResult{}, err
-		}
+	runs, err := e.runAll(ctx, s.Scenarios, target)
+	if err != nil {
+		return SuiteResult{}, err
+	}
+	for _, run := range runs {
 		res.Runs = append(res.Runs, run)
 		switch run.Outcome {
 		case verdict.Pass:
@@ -136,6 +137,53 @@ func (e *Engine) RunSuite(ctx context.Context, suiteID, targetOverride string) (
 	return res, nil
 }
 
+// suiteWorkers is how many scenarios of a stateless suite run at once.
+const suiteWorkers = 8
+
+// runAll runs a suite's scenarios in order. Scenarios that leave no state at the target (the
+// catalogue family: a gateway only validates) run several at once; the rest run one after another,
+// since a duplicate check or a cancellation depends on what ran before it.
+func (e *Engine) runAll(ctx context.Context, ids []string, target string) ([]Run, error) {
+	runs := make([]Run, len(ids))
+	stateless := len(ids) > 1
+	for _, id := range ids {
+		stateless = stateless && isCatalogueScenario(id)
+	}
+	if !stateless {
+		for i, id := range ids {
+			r, err := e.Run(ctx, id, target)
+			if err != nil {
+				return nil, err
+			}
+			runs[i] = r
+		}
+		return runs, nil
+	}
+	errs := make([]error, len(ids))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for w := 0; w < suiteWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				runs[i], errs[i] = e.Run(ctx, ids[i], target)
+			}
+		}()
+	}
+	for i := range ids {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return runs, nil
+}
+
 // pick lists the shipped scenarios whose ids start with any of the prefixes, in shipped order, leaving
 // out the ids in skip.
 func pick(prefixes []string, skip ...string) []string {
@@ -168,7 +216,7 @@ func cardPack(dialect string) []string {
 
 // builtinSuites are the shipped regression and certification-style packs.
 func builtinSuites() []Suite {
-	return append(coreSuites(), []Suite{
+	return append(append(coreSuites(), catalogueSuites()...), []Suite{
 		{ID: "crypto-iso8583", Name: "ISO 8583 card cryptography", Target: "card-switch",
 			Description: "PIN blocks in ISO 9564 formats 0, 1, 3 and 4, retail MACs and AES-CMACs, and Visa CVN 10, Visa CVN 18 and Mastercard CVN 16 cryptograms: each right, wrong, counterfeit or altered, verified under the published test keys.",
 			Scenarios: append(pick([]string{"generic-pin", "generic-mac", "generic-arqc"}), "iso8583-chip-valid", "iso8583-pin-wrong", "iso8583-pin-format4",

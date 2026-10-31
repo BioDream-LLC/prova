@@ -85,6 +85,9 @@ func (s *Sim) MarkSeen(e2e string) {
 // Decide computes the status the host returns for a request. Exported so tests and the engine can
 // evaluate the host logic without a socket.
 func (s *Sim) Decide(req Request) Status {
+	if IsCatalogue(req.Kind) {
+		return s.gatewayReply(req)
+	}
 	resp := Status{Kind: KindPacs002, MsgId: "RSP-" + req.MsgId, OrgnlMsgId: req.MsgId, OrgnlMsgNmId: nameOf(req.Kind),
 		OrgnlEndToEndId: req.EndToEndId}
 	if req.Kind == KindPain001 {
@@ -277,7 +280,7 @@ func (s *Sim) Reply(req Request) ([]byte, error) { return EncodeStatus(s.Decide(
 
 // ReplyRaw is the reply to a message as received: screened by Check first, when the host has one.
 func (s *Sim) ReplyRaw(raw []byte, req Request) ([]byte, error) {
-	if s.Check != nil && s.Mode == "" {
+	if s.Check != nil && s.Mode == "" && !IsCatalogue(req.Kind) {
 		if code := s.Check(raw); code != "" {
 			return EncodeStatus(s.refuse(req, code))
 		}

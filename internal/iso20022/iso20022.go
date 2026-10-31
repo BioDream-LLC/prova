@@ -59,6 +59,10 @@ type Request struct {
 	ReportKind string // camt.052, camt.053 (default) or camt.054
 	FromDate   string
 	ToDate     string
+	// Catalogue messages (any other message in the ISO 20022 catalogue): the instance to send, either
+	// given outright (XML) or generated (Variant: minimal, full, or a broken variant such as drop).
+	XML     string
+	Variant string
 }
 
 // FromRecord builds a Request from a flat string record (the adapter.Record form).
@@ -112,6 +116,9 @@ func FromRecord(r map[string]string) Request {
 		ReportKind: get("ReportKind", KindCamt053),
 		FromDate:   get("FromDate", ""),
 		ToDate:     get("ToDate", ""),
+
+		XML:     get("XML", ""),
+		Variant: get("Variant", ""),
 	}
 }
 
@@ -144,11 +151,17 @@ func Encode(req Request) ([]byte, error) {
 	case KindCamt060:
 		return encode060(req)
 	}
+	if IsCatalogue(req.Kind) {
+		return encodeCatalogue(req)
+	}
 	return nil, fmt.Errorf("iso20022: no encoder for %q", req.Kind)
 }
 
 // ParseRequest decodes any message prova sends back into a Request (used by the simulated host).
 func ParseRequest(raw []byte) (Request, error) {
+	if ck := catalogueKind(raw); IsCatalogue(ck) {
+		return parseCatalogue(raw)
+	}
 	switch k := Kind(raw); k {
 	case KindPacs008:
 		return parse008(raw)
@@ -169,7 +182,7 @@ func ParseRequest(raw []byte) (Request, error) {
 	case KindCamt060:
 		return parse060(raw)
 	default:
-		return Request{}, fmt.Errorf("iso20022: unsupported message %q", k)
+		return parseCatalogue(raw)
 	}
 }
 
@@ -316,6 +329,9 @@ type Status struct {
 	ClosingDate    string
 	Entries        int // how many entries the report lists (EntryList's length when that is set)
 	EntryList      []Entry
+	// Message rejects and receipt acknowledgements: where the error is and what it says.
+	Location    string
+	Description string
 }
 
 // Entry is one booked entry of an account report.
@@ -338,6 +354,8 @@ func EncodeStatus(s Status) ([]byte, error) {
 		return encodeReport(s)
 	case KindAdmi002:
 		return encodeAdmi002(s)
+	case KindAdmi007:
+		return encodeAdmi007(s)
 	}
 	b := stsRpt{
 		GrpHdr:   grpHdr002{MsgId: s.MsgId, CreDtTm: nowISO()},
@@ -358,6 +376,8 @@ func DecodeStatus(raw []byte) (Status, error) {
 		return decodeReport(raw)
 	case KindAdmi002:
 		return decodeAdmi002(raw)
+	case KindAdmi007:
+		return decodeAdmi007(raw)
 	}
 	var d doc002
 	if err := unmarshal(raw, &d, KindPacs002); err != nil {
@@ -386,6 +406,18 @@ func (s Status) Fields() map[string]string {
 		f["decision"] = "rejected"
 		f["rejectReason"] = s.ReasonCode
 		f["RjctgPtyRsn"] = s.ReasonCode
+		if s.Location != "" {
+			f["ErrLctn"] = s.Location
+		}
+		if s.Description != "" {
+			f["RsnDesc"] = s.Description
+		}
+		return f
+	case KindAdmi007:
+		f["decision"] = "accepted"
+		f["StsCd"] = s.TxSts
+		f["RltdRef"] = s.OrgnlMsgId
+		f["acknowledged"] = s.OrgnlMsgNmId
 		return f
 	}
 	f["OrgnlEndToEndId"] = s.OrgnlEndToEndId
@@ -450,7 +482,7 @@ func (r Request) Record() map[string]string {
 		"LocalInstrument": r.LocalInstrument, "ChargeBearer": r.ChargeBearer, "Remittance": r.Remittance,
 		"OrgnlEndToEndId": r.OrgnlEndToEndId, "Reason": r.Reason, "MandateId": r.MandateId, "MandateDate": r.MandateDate,
 		"SequenceType": r.SequenceType, "CreditorSchemeId": r.CreditorSchemeId, "Account": r.Account, "ReportKind": r.ReportKind,
-		"FromDate": r.FromDate, "ToDate": r.ToDate,
+		"FromDate": r.FromDate, "ToDate": r.ToDate, "Variant": r.Variant,
 	} {
 		if v != "" {
 			out[k] = v

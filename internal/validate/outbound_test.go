@@ -1,4 +1,4 @@
-package validate
+package validate_test
 
 import (
 	"os"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/biodream-llc/prova/internal/iso20022"
+	"github.com/biodream-llc/prova/internal/validate"
 )
 
 // TestEverythingProvaSendsIsSchemaValid encodes every ISO 20022 message prova can send, and every reply
@@ -35,6 +36,26 @@ func TestEverythingProvaSendsIsSchemaValid(t *testing.T) {
 		check(t, kind, raw)
 	}
 	sim := &iso20022.Sim{Ledger: map[string]int64{"ACC-EUR-1": 14200}, Originals: map[string]iso20022.Original{"E2E-ORIG": {Amount: 9000, Status: "PDNG"}}}
+	// The gateway's replies to catalogue messages: an admi.007 acknowledgement and an admi.002 reject
+	// carrying the error's location and description, for messages from several business areas.
+	for _, kind := range []string{"sese.023", "camt.053", "head.001", "caaa.001", "tsmt.001", "auth.018"} {
+		for _, variant := range []string{"minimal", "drop", "maxlen"} {
+			req := iso20022.FromRecord(map[string]string{"Message": kind, "Variant": variant, "MsgId": strings.Repeat("M", 40)})
+			raw, err := iso20022.Encode(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", kind, variant, err)
+			}
+			parsed, err := iso20022.ParseRequest(raw)
+			if err != nil {
+				t.Fatalf("%s %s: parse: %v", kind, variant, err)
+			}
+			out, err := sim.ReplyRaw(raw, parsed)
+			if err != nil {
+				t.Fatalf("%s %s: reply: %v", kind, variant, err)
+			}
+			check(t, kind+" "+variant+" gateway reply", out)
+		}
+	}
 	for _, kind := range iso20022.RequestKinds() {
 		rec := map[string]string{"Message": kind}
 		for k, v := range base {
@@ -54,7 +75,7 @@ func TestEverythingProvaSendsIsSchemaValid(t *testing.T) {
 
 func check(t *testing.T, what string, raw []byte) {
 	t.Helper()
-	rep, err := Message(raw, "")
+	rep, err := validate.Message(raw, "")
 	if err != nil {
 		t.Fatalf("%s: validate: %v", what, err)
 	}
@@ -63,7 +84,7 @@ func check(t *testing.T, what string, raw []byte) {
 		return
 	}
 	for _, f := range rep.Findings {
-		if f.Severity == Error {
+		if f.Severity == validate.Error {
 			t.Errorf("%s (%s): %s at %s: %s", what, rep.Kind, f.Rule, f.Path, f.Message)
 		}
 	}

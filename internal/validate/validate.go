@@ -7,9 +7,12 @@ import (
 	"strings"
 )
 
-// nsKind maps an ISO 20022 target namespace to its message short name.
+// nsKind maps an ISO 20022 target namespace to its message version.
 func nsKind(ns string) string {
 	const p = "urn:iso:std:iso:20022:tech:xsd:"
+	if k := KindForNamespace(ns); k != "" {
+		return k
+	}
 	if strings.HasPrefix(ns, p) {
 		return strings.TrimPrefix(ns, p)
 	}
@@ -39,13 +42,23 @@ func MessageWith(raw []byte, profile string, guideline []byte) (Report, error) {
 	rep := Report{Namespace: ns, Kind: nsKind(ns), Profile: profile}
 
 	s := schemas[ns]
-	if s == nil {
+	if s == nil && rep.Kind != "" {
+		if cs, err := schemaForKind(rep.Kind); err == nil {
+			s = cs
+		}
+	}
+	switch {
+	case s != nil && s.ns != ns:
+		rep.Schema = true
+		rep.Findings = append(rep.Findings, Finding{Rule: "xsd.namespace", Severity: Error, Path: "/Document",
+			Message: "the namespace is " + orNone(ns) + ", but " + rep.Kind + "'s schema is for " + s.ns, Fix: "use the namespace " + s.ns})
+	case s == nil:
 		rep.Findings = append(rep.Findings, Finding{
 			Rule: "xsd.schema", Severity: Warning, Path: "/Document",
-			Message: "no schema is bundled for namespace " + orNone(ns),
-			Fix:     "prova bundles schemas for " + strings.Join(Bundled(), ", "),
+			Message: "no ISO 20022 schema exists for namespace " + orNone(ns),
+			Fix:     "the namespace must be urn:iso:std:iso:20022:tech:xsd: followed by a message version in the catalogue, such as pacs.008.001.08",
 		})
-	} else {
+	default:
 		rep.Schema = true
 		rep.Findings = append(rep.Findings, validateSchema(s, doc)...)
 	}
@@ -87,7 +100,18 @@ func MessageWith(raw []byte, profile string, guideline []byte) (Report, error) {
 	return rep, nil
 }
 
-// Bundled lists the message versions prova carries an official schema for, sorted.
+// bundledKinds lists the curated schemas (the messages prova speaks natively) from their file names.
+func bundledKinds() []string {
+	ents, _ := schemaFS.ReadDir("xsd")
+	var out []string
+	for _, e := range ents {
+		out = append(out, strings.TrimSuffix(e.Name(), ".xsd"))
+	}
+	return out
+}
+
+// Bundled lists the message versions prova speaks natively, with a curated schema, sorted. Every
+// other message in the ISO 20022 catalogue validates too; see Catalogue.
 func Bundled() []string {
 	schemasOnce.Do(loadSchemas)
 	out := make([]string, 0, len(schemas))

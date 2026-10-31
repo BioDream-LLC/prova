@@ -12,6 +12,7 @@ func builtinScenarios() []Scenario {
 	out = append(out, schemeScenarios()...)
 	out = append(out, generatedScenarios()...)
 	out = append(out, fixScenarios()...)
+	out = append(out, catalogueScenarios()...)
 	return out
 }
 

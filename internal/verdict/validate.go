@@ -25,6 +25,13 @@ var knownCurrencies = map[string]int{
 // result means the instruction is well formed as far as prova can tell from its fields.
 func FieldProblems(req map[string]string) []string {
 	var out []string
+	if req["SchemaValid"] == "false" {
+		msg := "the message fails its ISO 20022 schema"
+		if e := strings.TrimSpace(req["SchemaError"]); e != "" {
+			msg += ": " + e
+		}
+		out = append(out, msg)
+	}
 	ccy := strings.TrimSpace(req["Currency"])
 	if ccy != "" {
 		if _, ok := knownCurrencies[ccy]; !ok {

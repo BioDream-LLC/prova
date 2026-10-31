@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -170,18 +171,16 @@ func TestEveryShippedScenario(t *testing.T) {
 		t.Fatalf("only %d shipped scenarios", len(scs))
 	}
 	seen := map[string]bool{}
-	for _, sc := range scs {
-		if seen[sc.ID] {
-			t.Fatalf("duplicate scenario id %s", sc.ID)
-		}
-		seen[sc.ID] = true
+	var catalogue []Scenario
+	check := func(sc Scenario) {
 		target := sc.Target
 		if target == "" {
 			target = sims.Compliant(sc.Protocol)
 		}
 		good, err := eng.Run(ctx, sc.ID, target)
 		if err != nil {
-			t.Fatalf("%s: %v", sc.ID, err)
+			t.Errorf("%s: %v", sc.ID, err)
+			return
 		}
 		want := verdict.Pass
 		if strings.HasSuffix(sc.ID, "-unknown-balance") {
@@ -192,7 +191,8 @@ func TestEveryShippedScenario(t *testing.T) {
 		}
 		bad, err := eng.Run(ctx, sc.ID, sims.Defective(sc.Protocol))
 		if err != nil {
-			t.Fatalf("%s: %v", sc.ID, err)
+			t.Errorf("%s: %v", sc.ID, err)
+			return
 		}
 		if good.Messages[1].Fields["decision"] == "rejected" && bad.Outcome == verdict.Pass {
 			t.Errorf("%s@defective: passed, but the compliant host refused it (defective response %v)", sc.ID, bad.Messages[1].Fields)
@@ -203,6 +203,33 @@ func TestEveryShippedScenario(t *testing.T) {
 			}
 		}
 	}
+	for _, sc := range scs {
+		if seen[sc.ID] {
+			t.Fatalf("duplicate scenario id %s", sc.ID)
+		}
+		seen[sc.ID] = true
+		if isCatalogueScenario(sc.ID) {
+			catalogue = append(catalogue, sc) // stateless at the gateway, so they run in parallel below
+			continue
+		}
+		check(sc)
+	}
+	jobs := make(chan Scenario)
+	var wg sync.WaitGroup
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for sc := range jobs {
+				check(sc)
+			}
+		}()
+	}
+	for _, sc := range catalogue {
+		jobs <- sc
+	}
+	close(jobs)
+	wg.Wait()
 	for _, su := range builtinSuites() {
 		for _, id := range su.Scenarios {
 			if !seen[id] {

@@ -302,6 +302,7 @@ func (e *Engine) sendOn(ctx context.Context, conns map[string]*loadConn, sc Scen
 	if err != nil {
 		return Run{}, err // the message, not the connection, is at fault
 	}
+	sc.Request = schemaEvidence(sc, msg)
 	h, err := lc.c.Send(rctx, msg)
 	if err != nil {
 		return fail(err)

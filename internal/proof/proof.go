@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/biodream-llc/prova/internal/af"
 	"github.com/biodream-llc/prova/internal/verdict"
@@ -42,6 +43,17 @@ func companionPath() string {
 	if p := os.Getenv("PROVA_PROOF"); p != "" {
 		return p
 	}
+	foundOnce.Do(func() { found = findCompanion() })
+	return found
+}
+
+// The companion's location is looked up once per process: the search stats every PATH entry.
+var (
+	foundOnce sync.Once
+	found     string
+)
+
+func findCompanion() string {
 	if exe, err := os.Executable(); err == nil {
 		cand := filepath.Join(filepath.Dir(exe), "prova-proof")
 		if _, err := os.Stat(cand); err == nil {

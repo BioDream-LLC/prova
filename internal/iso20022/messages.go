@@ -56,6 +56,7 @@ var rootKinds = map[string]string{
 	"BkToCstmrStmt":         KindCamt053,
 	"BkToCstmrDbtCdtNtfctn": KindCamt054,
 	"admi.002.001.01":       KindAdmi002,
+	"RctAck":                KindAdmi007,
 }
 
 // RequestKinds lists every ISO 20022 message prova sends, in the order it offers them.
@@ -847,6 +848,7 @@ type docAdmi002 struct {
 		Rsn struct {
 			RjctgPtyRsn string `xml:"RjctgPtyRsn"`
 			RjctnDtTm   string `xml:"RjctnDtTm,omitempty"`
+			ErrLctn     string `xml:"ErrLctn,omitempty"`
 			RsnDesc     string `xml:"RsnDesc,omitempty"`
 		} `xml:"Rsn"`
 	} `xml:"admi.002.001.01"`
@@ -858,6 +860,8 @@ func encodeAdmi002(s Status) ([]byte, error) {
 	d.Body.RltdRef.Ref = orDefault(s.OrgnlMsgId, s.OrgnlEndToEndId)
 	d.Body.Rsn.RjctgPtyRsn = s.ReasonCode
 	d.Body.Rsn.RjctnDtTm = nowISO()
+	d.Body.Rsn.ErrLctn = s.Location
+	d.Body.Rsn.RsnDesc = s.Description
 	return marshal(d, KindAdmi002)
 }
 
@@ -866,7 +870,8 @@ func decodeAdmi002(raw []byte) (Status, error) {
 	if err := unmarshal(raw, &d, KindAdmi002); err != nil {
 		return Status{}, err
 	}
-	return Status{Kind: KindAdmi002, OrgnlMsgId: d.Body.RltdRef.Ref, ReasonCode: d.Body.Rsn.RjctgPtyRsn}, nil
+	return Status{Kind: KindAdmi002, OrgnlMsgId: d.Body.RltdRef.Ref, ReasonCode: d.Body.Rsn.RjctgPtyRsn,
+		Location: d.Body.Rsn.ErrLctn, Description: d.Body.Rsn.RsnDesc}, nil
 }
 
 // signedMinor renders minor units as a signed two-decimal string.

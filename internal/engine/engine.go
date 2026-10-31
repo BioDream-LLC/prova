@@ -6,6 +6,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	"github.com/biodream-llc/prova/internal/iso20022"
+	"github.com/biodream-llc/prova/internal/validate"
 	"strconv"
 	"strings"
 	"sync"
@@ -271,6 +273,7 @@ func (e *Engine) execOnce(ctx context.Context, sc Scenario, targetName string) (
 	if err != nil {
 		return Run{}, err
 	}
+	sc.Request = schemaEvidence(sc, msg)
 	h, err := conn.Send(ctx, msg)
 	if err != nil {
 		return Run{}, err
@@ -390,6 +393,32 @@ var fixNames = map[string]string{
 	"session:possdup-replay":  "NewOrderSingle(D), resent as a possible duplicate",
 	"session:wrong-comp-id":   "NewOrderSingle(D), wrong TargetCompID",
 	"session:bad-checksum":    "NewOrderSingle(D), garbled CheckSum",
+}
+
+// schemaEvidence adds, for a catalogue message, the result of checking what was sent against its
+// official schema: SchemaValid, and SchemaError naming the first error. A host must refuse a message
+// that fails it; both verdict engines read SchemaValid as a field-validity failure.
+func schemaEvidence(sc Scenario, msg []byte) map[string]string {
+	if sc.Protocol != "iso20022" || !iso20022.IsCatalogue(sc.MessageKind()) {
+		return sc.Request
+	}
+	out := make(map[string]string, len(sc.Request)+2)
+	for k, v := range sc.Request {
+		out[k] = v
+	}
+	out["SchemaValid"] = "true"
+	rep, err := validate.Message(msg, "")
+	if err != nil {
+		out["SchemaValid"], out["SchemaError"] = "false", err.Error()
+		return out
+	}
+	for _, f := range rep.Findings {
+		if f.Severity == validate.Error {
+			out["SchemaValid"], out["SchemaError"] = "false", f.Path+": "+f.Message
+			break
+		}
+	}
+	return out
 }
 
 func messageName(protocol, kind string) string {
